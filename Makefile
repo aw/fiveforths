@@ -20,7 +20,7 @@ fiveforths.o: fiveforths.s
 		$(AS) $(CFLAGS) -march=$(ARCH) -o $@ $<
 
 fiveforths.elf:
-		$(LD) -m $(EMU) -o $@ fiveforths.o
+		$(LD) -m $(EMU) -T fiveforths.ld -o $@ fiveforths.o
 
 fiveforths.bin:
 		$(OBJCOPY) -O binary fiveforths.elf $@

@@ -163,6 +163,7 @@ djb2_hash_done:
 .global _start
 
 _start:
+    la sp, __stacktop
     ret
 
 # TODO: fixme
