@@ -16,7 +16,7 @@ Copyright (c) 2021 Alexander Williams, On-Prem <license@on-premises.com>
 .equ CELL, 4                            # 32-bits cell size
 .equ RAM_BASE, 0x20000000               # base address of RAM
 .equ RAM_SIZE, 1024 * 20                # 20 KiB
-.equ STACK_SIZE, 1024                   # 1 KiB
+.equ STACK_SIZE, 256                    # 256 Bytes
 
 # DSP, RSP, TIB stacks grow downward from the top of memory
 .equ DSP_TOP, RAM_BASE + RAM_SIZE       # address of top of data stack
@@ -24,17 +24,17 @@ Copyright (c) 2021 Alexander Williams, On-Prem <license@on-premises.com>
 .equ TIB_TOP, RSP_TOP - STACK_SIZE      # address of top of terminal buffer
 .equ TIB, TIB_TOP - STACK_SIZE          # address of bottom of terminal buffer
 
-# reserve 3x 1 KiB for stacks
+# reserve 3x 256 Bytes for stacks
 .bss
 .balign STACK_SIZE
 data_stack:
-    .space STACK_SIZE                   # reserve 1 KiB for data stack
+    .space STACK_SIZE                   # reserve 256 Bytes for data stack
 return_stack:
-    .space STACK_SIZE                   # reserve 1 KiB for return stack
+    .space STACK_SIZE                   # reserve 256 Bytes for return stack
 tib_stack:
-    .space STACK_SIZE                   # reserve 1 KiB for terminal buffer
+    .space STACK_SIZE                   # reserve 256 Bytes for terminal buffer
 
-# reserve 16 bytes (32-bit) or 32 bytes (64-bit) for variables
+# reserve 16 Bytes (32-bit) or 32 Bytes (64-bit) for variables
 .balign (CELL * 4)
 .equ STATE, TIB - CELL                  # 1 CELL for STATE variable
 .equ HERE, STATE - CELL                 # 1 CELL for HERE variable
@@ -43,7 +43,7 @@ tib_stack:
 variables:
     .space (CELL * 4)                   # reserve 4 CELLS zero-filled
 
-# reserve 256 bytes (32-bit) or 512 bytes (64-bit) for hash indexes
+# reserve 256 Bytes (32-bit) or 512 bytes (64-bit) for hash indexes
 .balign (CELL * 64)
 .equ PAD, NOOP - (CELL * 64)            # 64 CELLS between NOOP and PAD
 indexes:
@@ -78,27 +78,26 @@ indexes:
 
 # push register to data stack
 .macro PUSH reg
-    addi sp, sp, -16    # decrement DSP by 16 bytes (128-bit aligned)
+    addi sp, sp, -4     # decrement DSP by 4 bytes (32-bit aligned)
     sw \reg, 0(sp)      # store value from register into DSP
 .endm
 
 # pop top of data stack to register
 .macro POP reg
     lw \reg, 0(sp)      # load value from DSP into register
-    addi sp, sp, 16     # increment DSP by 16 bytes (128-bit aligned)
+    addi sp, sp, 4      # increment DSP by 4 bytes (32-bit aligned)
 .endm
 
-# FIXME: does RSP also need to be 128-bit aligned?
 # push register to return stack
 .macro PUSHRSP reg
-    addi s2, s2, -16    # decrement RSP by 16 bytes (128-bit aligned)
+    addi s2, s2, -4     # decrement RSP by 4 bytes (32-bit aligned)
     sw \reg, 0(s2)      # store value from register into RSP
 .endm
 
 # pop top of return stack to register
 .macro POPRSP reg
     lw \reg, 0(s2)      # load value from RSP into register
-    addi s2, s2, 16     # increment RSP by 16 bytes (128-bit aligned)
+    addi s2, s2, 4      # increment RSP by 4 bytes (32-bit aligned)
 .endm
 
 # TODO: describe what this does

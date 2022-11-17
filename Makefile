@@ -12,9 +12,9 @@ OBJCOPY := $(CROSS)objcopy
 OBJDUMP := $(CROSS)objdump
 READELF := $(CROSS)readelf
 
-.PHONY: clean dump ldump
+.PHONY: clean
 
-build: fiveforths.o fiveforths.elf fiveforths.bin fiveforths.hex
+build: fiveforths.o fiveforths.elf fiveforths.bin fiveforths.hex fiveforths.dump
 
 fiveforths.o: fiveforths.s
 		$(AS) $(CFLAGS) -march=$(ARCH) -o $@ $<
@@ -28,11 +28,11 @@ fiveforths.bin:
 fiveforths.hex:
 		$(OBJCOPY) -O ihex fiveforths.elf $@
 
-dump:
-		$(OBJDUMP) -D -S fiveforths.elf
+fiveforths.dump:
+		$(OBJDUMP) -D -S fiveforths.elf > fiveforths.dump
 
 readelf:
 		$(READELF) -a fiveforths.elf
 
 clean:
-		rm -v *.bin *.elf *.o *.hex
+		rm -v *.bin *.elf *.o *.hex *.dump
