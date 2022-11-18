@@ -24,30 +24,14 @@ Copyright (c) 2021 Alexander Williams, On-Prem <license@on-premises.com>
 .equ TIB_TOP, RSP_TOP - STACK_SIZE      # address of top of terminal buffer
 .equ TIB, TIB_TOP - STACK_SIZE          # address of bottom of terminal buffer
 
-# reserve 3x 256 Bytes for stacks
-.bss
-.balign STACK_SIZE
-data_stack:
-    .space STACK_SIZE                   # reserve 256 Bytes for data stack
-return_stack:
-    .space STACK_SIZE                   # reserve 256 Bytes for return stack
-tib_stack:
-    .space STACK_SIZE                   # reserve 256 Bytes for terminal buffer
-
 # reserve 16 Bytes (32-bit) or 32 Bytes (64-bit) for variables
 .balign (CELL * 4)
 .equ STATE, TIB - CELL                  # 1 CELL for STATE variable
 .equ HERE, STATE - CELL                 # 1 CELL for HERE variable
 .equ LATEST, HERE - CELL                # 1 CELL for LATEST variable
 .equ NOOP, LATEST - CELL                # 1 CELL for NOOP variable
-variables:
-    .space (CELL * 4)                   # reserve 4 CELLS zero-filled
-
-# reserve 256 Bytes (32-bit) or 512 bytes (64-bit) for hash indexes
-.balign (CELL * 64)
-.equ PAD, NOOP - (CELL * 64)            # 64 CELLS between NOOP and PAD
-indexes:
-    .space (CELL * 64)                  # reserve 64 CELLS zero-filled
+.equ INDEXES, NOOP - (CELL * 64)        # 64 CELLS between NOOP and INDEXES
+.equ PAD, INDEXES - (CELL * 64)         # 64 CELLS between INDEXES and PAD
 
 # dictionary grows upward from the RAM base address
 .equ FORTH_SIZE, PAD - RAM_BASE         # remaining memory for Forth
@@ -275,14 +259,21 @@ defcode "key", 0x0388878e, KEY, TOIN
 defcode "emit", 0x04964f74, EMIT, HERE
     NEXT
 
-.balign CELL            # align to CELL bytes boundary
-here:                   # next new word will go here
+.balign CELL
 
-.data
-    # add a few strings which will be used in the program
-    .balign CELL
+# add a few strings which will be used in the program
+.section .rodata
+
+msgok:
     .ascii " ok\n"
+msgerr:
     .ascii "  ?\n"
+msgredef:
     .ascii " redefined ok\n"
-    .balign CELL
-    ret
+
+.balign CELL            # align to CELL bytes boundary
+
+.text
+
+here:                   # next new word will go here
+ret
