@@ -6,7 +6,7 @@ The MIT License (MIT)
 Copyright (c) 2021 Alexander Williams, On-Prem <license@on-premises.com>
 */
 
-.set FORTH_VERSION, 1
+.equ FORTH_VERSION, 1
 
 ##
 # Memory map
@@ -22,12 +22,12 @@ Copyright (c) 2021 Alexander Williams, On-Prem <license@on-premises.com>
 .equ DSP_TOP, RAM_BASE + RAM_SIZE       # address of top of data stack
 .equ RSP_TOP, DSP_TOP - STACK_SIZE      # address of top of return stack
 .equ TIB_TOP, RSP_TOP - STACK_SIZE      # address of top of terminal buffer
-.equ TIB, TIB_TOP - STACK_SIZE          # address of bottom of terminal buffer
 
-# reserve 16 Bytes (32-bit) or 32 Bytes (64-bit) for variables
-.balign (CELL * 4)
+# variables
+.equ TIB, TIB_TOP - STACK_SIZE          # 1 CELL for TIB variable
 .equ STATE, TIB - CELL                  # 1 CELL for STATE variable
-.equ HERE, STATE - CELL                 # 1 CELL for HERE variable
+.equ TOIN, STATE - CELL                 # 1 CELL for TOIN variable
+.equ HERE, TOIN - CELL                  # 1 CELL for HERE variable
 .equ LATEST, HERE - CELL                # 1 CELL for LATEST variable
 .equ NOOP, LATEST - CELL                # 1 CELL for NOOP variable
 .equ INDEXES, NOOP - (CELL * 64)        # 64 CELLS between NOOP and INDEXES
@@ -45,8 +45,8 @@ Copyright (c) 2021 Alexander Williams, On-Prem <license@on-premises.com>
 # s0 = FP  = frame pointer (unused for now)
 # s1 = IP  = instruction pointer
 # s2 = RSP = return stack pointer
-# s3 = TOS = top of stack pointer
-# s4 = TIB = terminal input buffer
+# s3 = TOS = top of stack pointer (data stack)
+# s4 = SOS = second to top of stack pointer (data stack)
 
 ##
 # Macros to boost performance
@@ -70,6 +70,14 @@ Copyright (c) 2021 Alexander Williams, On-Prem <license@on-premises.com>
 .macro POP reg
     lw \reg, 0(sp)      # load value from DSP into register
     addi sp, sp, 4      # increment DSP by 4 bytes (32-bit aligned)
+.endm
+
+# pop first and second top of stack data registers into reg1 and reg2
+# example: DUALPOP s3, s4
+.macro DUALPOP reg1, reg2
+    lw \reg1, 0(sp)     # load first stack element from DSP into register 1
+    lw \reg2, 4(sp)     # load second stack element from DSP into register 2
+    addi sp, sp, 8      # increment DSP by 2 cells (32-bit aligned)
 .endm
 
 # push register to return stack
@@ -160,36 +168,25 @@ enter:
 # Forth primitives
 ##
 
-.set F_IMMED, 0x80000000 # 0x7fffffff
-.set F_HIDDEN, 0x40000000 # 0xbfffffff
-.set word_NULL, 0
+# FIXME: where are these used?
+.equ F_IMMED, 0x80000000 # 0x7fffffff
+.equ F_HIDDEN, 0x40000000 # 0xbfffffff
+
+.equ word_NULL, 0
 
 # OK
-defcode "exit", 0x04967e3f, EXIT, NULL
-    POPRSP s1           # pop RSP into IP
-    NEXT
-
-# FIXME
-defcode ":", 0x0102b5df, COLON, NULL
-    NEXT
-
-# FIXME
-defcode ";", 0x0102b5e0, SEMI, COLON
-    NEXT
-
-# OK
-defcode "@", 0x0102b5e5, FETCH, SEMI
+defcode "@", 0x0102b5e5, FETCH, NULL
     lw s3, 0(s3)        # load address value from TOS into TOS
     NEXT
 
 # OK
 defcode "!", 0x0102b5c6, STORE, FETCH
-    POP a0              # pop value into W
-    sw a0, 0(s3)        # store value from W into memory address stored in TOS
+    sw s4, 0(s3)        # store value from SOS into memory address stored in TOS
+    DUALPOP s3, s4      # pop first and second top of stack data registers into TOS and SOS
     NEXT
 
 # OK
-defcode "sp@", 0x0388aac8, DSPFETCH, NULL
+defcode "sp@", 0x0388aac8, DSPFETCH, STORE
     mv t0, sp           # copy DSP into temporary
     PUSH s3             # push TOS to top of data stack
     mv s3, t0           # copy temporary to TOS
@@ -202,61 +199,89 @@ defcode "rp@", 0x0388a687, RSPFETCH, DSPFETCH
     NEXT
 
 # OK
-defcode "0=", 0x025970b2, ZEQU, NULL
+defcode "0=", 0x025970b2, ZEQU, RSPFETCH
     seqz s3, s3         # store 1 in TOS if TOS is equal to 0, otherwise store 0
     NEXT
 
 # OK
-defcode "+", 0x0102b5d0, ADD, STORE
+defcode "+", 0x0102b5d0, ADD, ZEQU
     POP a0              # pop value into W
     add s3, a0, s3      # add TOS and W into TOS
     NEXT
 
 # OK
-defcode "nand", 0x049b0c66, NAND, EXIT
+defcode "nand", 0x049b0c66, NAND, ADD
     POP a0              # pop value into W
     and s3, s3, a0      # store bitwise AND of W and TOS into TOS
     not s3, s3          # store bitwise NOT of TOS into TOS
     NEXT
 
 # OK
-defcode "state", 0x05614a06, STATE, NULL
+defcode "exit", 0x04967e3f, EXIT, NAND
+    POPRSP s1           # pop RSP into IP
+    NEXT
+
+##
+# Forth I/O
+##
+
+# FIXME
+defcode "key", 0x0388878e, KEY, EXIT
+    NEXT
+
+# FIXME
+defcode "emit", 0x04964f74, EMIT, KEY
+    NEXT
+
+##
+# Forth variables
+##
+
+# OK
+defcode "tib", 0x0388ae44, TIB, EMIT
+    PUSH s3             # push TOS to top of data stack
+    li t0, TIB          # load address value from TIB into temporary
+    lw s3, 0(t0)        # load temporary into TOS
+    NEXT
+
+# OK
+defcode "state", 0x05614a06, STATE, TIB
     PUSH s3             # push TOS to top of data stack
     li t0, STATE        # load address value from STATE into temporary
     lw s3, 0(t0)        # load temporary into TOS
     NEXT
 
 # OK
-defcode "tib", 0x0388ae44, TIB, RSPFETCH
+defcode ">in", 0x0387c89a, TOIN, STATE
     PUSH s3             # push TOS to top of data stack
-    li t0, TIB          # load address value from TIB into temporary
+    li t0, TOIN         # load address value from TOIN into temporary
     lw s3, 0(t0)        # load temporary into TOS
     NEXT
 
-# FIXME
-defcode ">in", 0x0387c89a, TOIN, TIB
-  NEXT
-
 # OK
-defcode "here", 0x0497d3a9, HERE, NAND
+defcode "here", 0x0497d3a9, HERE, TOIN
     PUSH s3             # push TOS to top of data stack
     li t0, HERE         # load address value from HERE into temporary
     lw s3, 0(t0)        # load temporary into TOS
     NEXT
 
 # OK
-defcode "latest", 0x06e8ca72, LATEST, NULL
+defcode "latest", 0x06e8ca72, LATEST, HERE
     PUSH s3             # push TOS to top of data stack
     li t0, LATEST       # load address value from LATEST into temporary
     lw s3, 0(t0)        # load temporary into TOS
     NEXT
 
+##
+# Forth words
+##
+
 # FIXME
-defcode "key", 0x0388878e, KEY, TOIN
+defcode ":", 0x0102b5df, COLON, LATEST
     NEXT
 
 # FIXME
-defcode "emit", 0x04964f74, EMIT, HERE
+defcode ";", 0x0102b5e0, SEMI, COLON
     NEXT
 
 .balign CELL

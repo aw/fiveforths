@@ -2,6 +2,7 @@
 #
 # Makefile for building and testing
 
+PROGNAME = fiveforths
 CFLAGS := -g
 ARCH ?= rv32imac # rv32imac for Longan Nano
 EMU ?= elf32lriscv
@@ -14,25 +15,25 @@ READELF := $(CROSS)readelf
 
 .PHONY: clean
 
-build: fiveforths.o fiveforths.elf fiveforths.bin fiveforths.hex fiveforths.dump
+build: $(PROGNAME).o $(PROGNAME).elf $(PROGNAME).bin $(PROGNAME).hex $(PROGNAME).dump
 
-fiveforths.o: fiveforths.s
+%.o: %.s
 		$(AS) $(CFLAGS) -march=$(ARCH) -o $@ $<
 
-fiveforths.elf:
-		$(LD) -m $(EMU) -T fiveforths.ld -o $@ fiveforths.o
+%.elf: %.o
+		$(LD) -m $(EMU) -T $(PROGNAME).ld -o $@ $<
 
-fiveforths.bin:
-		$(OBJCOPY) -O binary fiveforths.elf $@
+%.bin: %.elf
+		$(OBJCOPY) -O binary $< $@
 
-fiveforths.hex:
-		$(OBJCOPY) -O ihex fiveforths.elf $@
+%.hex: %.elf
+		$(OBJCOPY) -O ihex $< $@
 
-fiveforths.dump:
-		$(OBJDUMP) -D -S fiveforths.elf > fiveforths.dump
+%.dump: %.elf
+		$(OBJDUMP) -D -S $< > $@
 
-readelf:
-		$(READELF) -a fiveforths.elf
+readelf: $(PROGNAME).elf
+		$(READELF) -a $<
 
 clean:
 		rm -v *.bin *.elf *.o *.hex *.dump
