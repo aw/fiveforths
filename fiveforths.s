@@ -46,7 +46,6 @@ Copyright (c) 2021 Alexander Williams, On-Prem <license@on-premises.com>
 # s1 = IP  = instruction pointer
 # s2 = RSP = return stack pointer
 # s3 = TOS = top of stack pointer (data stack)
-# s4 = SOS = second to top of stack pointer (data stack)
 
 ##
 # Macros to boost performance
@@ -60,43 +59,23 @@ Copyright (c) 2021 Alexander Williams, On-Prem <license@on-premises.com>
     jr t0               # jump to the address in temporary
 .endm
 
-# push register to data stack
+# push register to top of stack
 .macro PUSH reg
-    addi sp, sp, -4     # decrement DSP by 4 bytes (32-bit aligned)
-    sw \reg, 0(sp)      # store value from register into DSP
-.endm
-
-# pop top of data stack to register
-.macro POP reg
-    lw \reg, 0(sp)      # load value from DSP into register
-    addi sp, sp, 4      # increment DSP by 4 bytes (32-bit aligned)
-.endm
-
-# pop first and second top of stack data registers into reg1 and reg2
-# example: DUALPOP s3, s4
-.macro DUALPOP reg1, reg2
-    lw \reg1, 0(sp)     # load first stack element from DSP into register 1
-    lw \reg2, 4(sp)     # load second stack element from DSP into register 2
-    addi sp, sp, 8      # increment DSP by 2 cells (32-bit aligned)
+    sw s3, -CELL(sp)    # store the value in the TOS to the top of the DSP
+    mv s3, \reg         # copy reg to TOS
+    addi sp, sp, -CELL  # move the DSP down by 1 cell to make room for the TOS
 .endm
 
 # push register to return stack
 .macro PUSHRSP reg
-    addi s2, s2, -4     # decrement RSP by 4 bytes (32-bit aligned)
+    addi s2, s2, -CELL  # decrement RSP by 1 cell
     sw \reg, 0(s2)      # store value from register into RSP
 .endm
 
 # pop top of return stack to register
 .macro POPRSP reg
     lw \reg, 0(s2)      # load value from RSP into register
-    addi s2, s2, 4      # increment RSP by 4 bytes (32-bit aligned)
-.endm
-
-# TODO: describe what this does
-.macro RCALL symbol
-    PUSH ra             # push ra (return address) on to stack
-    call \symbol        # call the function
-    POP ra              # fetch ra from the stack
+    addi s2, s2, CELL   # increment RSP by 1 cell
 .endm
 
 # define a primitive dictionary word
@@ -175,27 +154,30 @@ enter:
 .equ word_NULL, 0
 
 # OK
+# @ ( addr -- x )       Fetch memory at addr
 defcode "@", 0x0102b5e5, FETCH, NULL
-    lw s3, 0(s3)        # load address value from TOS into TOS
+    lw s3, 0(s3)        # load address value from TOS (addr) into TOS (x)
     NEXT
 
 # OK
+# ! ( x addr -- )       Store x at addr
 defcode "!", 0x0102b5c6, STORE, FETCH
-    sw s4, 0(s3)        # store value from SOS into memory address stored in TOS
-    DUALPOP s3, s4      # pop first and second top of stack data registers into TOS and SOS
+    lw t0, 0(sp)        # load the DSP value (x) into temporary
+    sw t0, 0(s3)        # store temporary into address stored in TOS (addr)
+    lw s3, CELL(sp)     # load second value in DSP to TOS
+    addi sp, sp, 2*CELL # move DSP up by 2 cells
     NEXT
 
 # OK
+# sp@ ( -- addr )       Get current data stack pointer
 defcode "sp@", 0x0388aac8, DSPFETCH, STORE
-    mv t0, sp           # copy DSP into temporary
-    PUSH s3             # push TOS to top of data stack
-    mv s3, t0           # copy temporary to TOS
+    PUSH sp
     NEXT
 
 # OK
+# rp@ ( -- addr )       Get current return stack pointer
 defcode "rp@", 0x0388a687, RSPFETCH, DSPFETCH
-    PUSH s3             # push TOS to top of data stack
-    mv s3, s2           # copy RSP to TOS
+    PUSH s2
     NEXT
 
 # OK
