@@ -59,11 +59,25 @@ Copyright (c) 2021 Alexander Williams, On-Prem <license@on-premises.com>
     jr t0               # jump to the address in temporary
 .endm
 
+# pop top of stack to register
+.macro POP reg
+    addi sp, sp, CELL   # move the DSP up by 1 cell
+    lw \reg, -CELL(sp)  # load DSP value to temporary
+.endm
+
 # push register to top of stack
 .macro PUSH reg
     sw s3, -CELL(sp)    # store the value in the TOS to the top of the DSP
     mv s3, \reg         # copy reg to TOS
     addi sp, sp, -CELL  # move the DSP down by 1 cell to make room for the TOS
+.endm
+
+# push variable to top of stack
+.macro PUSHVAR var
+    sw s3, -CELL(sp)    # store the value in the TOS to the top of the DSP
+    li t0, \var         # load TIB into temporary
+    lw s3, 0(t0)        # load TIB address value into TOS
+    addi sp, sp, -CELL  # move the DSP down by 1 cell
 .endm
 
 # push register to return stack
@@ -171,34 +185,38 @@ defcode "!", 0x0102b5c6, STORE, FETCH
 # OK
 # sp@ ( -- addr )       Get current data stack pointer
 defcode "sp@", 0x0388aac8, DSPFETCH, STORE
-    PUSH sp
+    PUSH sp             # store DSP in TOS
     NEXT
 
 # OK
 # rp@ ( -- addr )       Get current return stack pointer
 defcode "rp@", 0x0388a687, RSPFETCH, DSPFETCH
-    PUSH s2
+    PUSH s2             # store RSP in TOS
     NEXT
 
 # OK
+# 0= ( x -- f )         -1 if top of stack is 0, 0 otherwise
 defcode "0=", 0x025970b2, ZEQU, RSPFETCH
     seqz s3, s3         # store 1 in TOS if TOS is equal to 0, otherwise store 0
     NEXT
 
 # OK
+# + ( x1 x2 -- n )      Add the two values at the top of the stack
 defcode "+", 0x0102b5d0, ADD, ZEQU
-    POP a0              # pop value into W
-    add s3, a0, s3      # add TOS and W into TOS
+    POP t0              # pop value into temporary
+    add s3, s3, t0      # add values and store in TOS
     NEXT
 
 # OK
+# nand ( x1 x2 -- n )   bitwise NAND the two values at the top of the stack
 defcode "nand", 0x049b0c66, NAND, ADD
-    POP a0              # pop value into W
-    and s3, s3, a0      # store bitwise AND of W and TOS into TOS
+    POP t0              # pop value into temporary
+    and s3, s3, t0      # store bitwise AND of temporary and TOS into TOS
     not s3, s3          # store bitwise NOT of TOS into TOS
     NEXT
 
 # OK
+# exit ( r:addr -- )    Resume execution at address at the top of the return stack
 defcode "exit", 0x04967e3f, EXIT, NAND
     POPRSP s1           # pop RSP into IP
     NEXT
@@ -221,37 +239,27 @@ defcode "emit", 0x04964f74, EMIT, KEY
 
 # OK
 defcode "tib", 0x0388ae44, TIB, EMIT
-    PUSH s3             # push TOS to top of data stack
-    li t0, TIB          # load address value from TIB into temporary
-    lw s3, 0(t0)        # load temporary into TOS
+    PUSHVAR TIB         # store TIB variable value in TOS
     NEXT
 
 # OK
 defcode "state", 0x05614a06, STATE, TIB
-    PUSH s3             # push TOS to top of data stack
-    li t0, STATE        # load address value from STATE into temporary
-    lw s3, 0(t0)        # load temporary into TOS
+    PUSHVAR STATE       # store STATE variable value in TOS
     NEXT
 
 # OK
 defcode ">in", 0x0387c89a, TOIN, STATE
-    PUSH s3             # push TOS to top of data stack
-    li t0, TOIN         # load address value from TOIN into temporary
-    lw s3, 0(t0)        # load temporary into TOS
+    PUSHVAR TOIN        # store TOIN variable value in TOS
     NEXT
 
 # OK
 defcode "here", 0x0497d3a9, HERE, TOIN
-    PUSH s3             # push TOS to top of data stack
-    li t0, HERE         # load address value from HERE into temporary
-    lw s3, 0(t0)        # load temporary into TOS
+    PUSHVAR HERE        # store HERE variable value in TOS
     NEXT
 
 # OK
 defcode "latest", 0x06e8ca72, LATEST, HERE
-    PUSH s3             # push TOS to top of data stack
-    li t0, LATEST       # load address value from LATEST into temporary
-    lw s3, 0(t0)        # load temporary into TOS
+    PUSHVAR LATEST      # store LATEST variable value in TOS
     NEXT
 
 ##
