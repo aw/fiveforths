@@ -59,25 +59,25 @@ Copyright (c) 2021 Alexander Williams, On-Prem <license@on-premises.com>
     jr t0               # jump to the address in temporary
 .endm
 
-# pop top of stack to register
+# pop top of data stack to register
 .macro POP reg
+    lw \reg, 0(sp)      # load DSP value to temporary
     addi sp, sp, CELL   # move the DSP up by 1 cell
-    lw \reg, -CELL(sp)  # load DSP value to temporary
 .endm
 
 # push register to top of stack
 .macro PUSH reg
-    sw s3, -CELL(sp)    # store the value in the TOS to the top of the DSP
-    mv s3, \reg         # copy reg to TOS
-    addi sp, sp, -CELL  # move the DSP down by 1 cell to make room for the TOS
+    addi sp, sp, -CELL  # move the DSP down by 1 cell
+    sw s3, 0(sp)        # store the value in the TOS to the top of the DSP
+    addi s3, \reg, CELL # copy reg+CELL (old sp) to TOS
 .endm
 
 # push variable to top of stack
 .macro PUSHVAR var
-    sw s3, -CELL(sp)    # store the value in the TOS to the top of the DSP
-    li t0, \var         # load TIB into temporary
-    lw s3, 0(t0)        # load TIB address value into TOS
     addi sp, sp, -CELL  # move the DSP down by 1 cell
+    sw s3, 0(sp)        # store the value in the TOS to the top of the DSP
+    li t0, \var         # load variable into temporary
+    lw s3, 0(t0)        # load variable address value into TOS
 .endm
 
 # push register to return stack
@@ -208,7 +208,7 @@ defcode "+", 0x0102b5d0, ADD, ZEQU
     NEXT
 
 # OK
-# nand ( x1 x2 -- n )   bitwise NAND the two values at the top of the stack
+# nand ( x1 x2 -- n )   Bitwise NAND the two values at the top of the stack
 defcode "nand", 0x049b0c66, NAND, ADD
     POP t0              # pop value into temporary
     and s3, s3, t0      # store bitwise AND of temporary and TOS into TOS
