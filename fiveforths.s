@@ -22,11 +22,11 @@ Copyright (c) 2021 Alexander Williams, On-Prem <license@on-premises.com>
 .equ DSP_TOP, RAM_BASE + RAM_SIZE       # address of top of data stack
 .equ RSP_TOP, DSP_TOP - STACK_SIZE      # address of top of return stack
 .equ TIB_TOP, RSP_TOP - STACK_SIZE      # address of top of terminal buffer
+.equ TIB, TIB_TOP - STACK_SIZE          # address of bottom of terminal buffer
 
 # variables
-.equ TIB, TIB_TOP - STACK_SIZE          # 1 CELL for TIB variable
 .equ STATE, TIB - CELL                  # 1 CELL for STATE variable
-.equ TOIN, STATE - CELL                 # 1 CELL for TOIN variable
+.equ TOIN, STATE - CELL                 # 1 CELL for TOIN variable (looks into TIB)
 .equ HERE, TOIN - CELL                  # 1 CELL for HERE variable
 .equ LATEST, HERE - CELL                # 1 CELL for LATEST variable
 .equ NOOP, LATEST - CELL                # 1 CELL for NOOP variable
@@ -42,6 +42,9 @@ Copyright (c) 2021 Alexander Williams, On-Prem <license@on-premises.com>
 
 # sp = DSP = data stack pointer
 # a0 = W   = working register
+# a1 = X   = working register
+# a2 = Y   = working register
+# a3 = Z   = working register
 # s0 = FP  = frame pointer (unused for now)
 # s1 = IP  = instruction pointer
 # s2 = RSP = return stack pointer
@@ -266,8 +269,32 @@ defcode "latest", 0x06e8ca72, LATEST, HERE
 # Forth words
 ##
 
+token:
+    li t1, 0x32                 # initialize temporary to 'space' character
+    li t2, 0                    # initialize temporary counter to 0
+token_char:
+    blt a1, a0, token_done      # compare the address of TOIN with the address of TIB
+    lbu t0, 0(a1)               # read char from TOIN address
+    addi a1, a1, -1             # move TOIN pointer down
+    bgeu t1, t0, token_space    # compare char with space
+    addi t2, t2, 1              # increment the token size for each non-space byte read
+    j token_char                # loop to read the next character
+token_space:
+    beqz t2, token_char         # loop to read next character if token size is 0
+    j token_done                # token reading is done
+token_done:
+    add a0, a1, t2              # add the size of the token with the address of TOIN to W
+    addi a0, a0, 1              # add 1 to W to account for TOIN offset pointer
+    mv a1, t2                   # store the size in X
+    ret
+
 # FIXME
 defcode ":", 0x0102b5df, COLON, LATEST
+    li a0, TIB          # load TIB into W
+    li a1, TOIN         # load TOIN into X
+    lw a1, 0(a1)        # load TOIN address value into X
+    call token
+    # TODO: rewrite TOIN pointer to value in a0
     NEXT
 
 # FIXME
