@@ -30,8 +30,7 @@ Copyright (c) 2021 Alexander Williams, On-Prem <license@on-premises.com>
 .equ HERE, TOIN - CELL                  # 1 CELL for HERE variable
 .equ LATEST, HERE - CELL                # 1 CELL for LATEST variable
 .equ NOOP, LATEST - CELL                # 1 CELL for NOOP variable
-.equ INDEXES, NOOP - (CELL * 64)        # 64 CELLS between NOOP and INDEXES
-.equ PAD, INDEXES - (CELL * 64)         # 64 CELLS between INDEXES and PAD
+.equ PAD, NOOP - (CELL * 64)            # 64 CELLS between NOOP and PAD
 
 # dictionary grows upward from the RAM base address
 .equ FORTH_SIZE, PAD - RAM_BASE         # remaining memory for Forth
@@ -151,7 +150,28 @@ djb2_hash_done:
 
 _start:
     la sp, __stacktop
+    j _testing
     ret
+
+_testing:
+    # preparing for creating a token
+    li a0, TIB          # load TIB into W
+    li t0, 0x20202020   # load a bunch of spaces
+    sw t0, 4(a0)        # store 4 spaces in TIB
+    li t0, 0x70756420   # load word 'dup' into temporary
+    sw t0, 0(a0)        # store word in TIB address
+    addi a1, a0, 7      # increment TIB by 7 (size of token + 4 spaces)
+    li t0, TOIN         # load TOIN variable memory address into temporary
+    sw a1, 0(t0)        # store new address location from temporary in TOIN variable
+
+    # prepare for storing
+    li t0, HERE         # load HERE variable
+    li t1, RAM_BASE     # load RAM_BASE variable
+    sw t1, 0(t0)        # store RAM_BASE address in HERE variable
+    li t0, LATEST       # load LATEST variable
+    la t1, word_SEMI    # load address of the last word in Flash memory (;) for now
+    sw t1, 0(t0)        # store latest address in LATEST variable
+    j body_COLON
 
 # TODO: fixme
 enter:
@@ -269,8 +289,11 @@ defcode "latest", 0x06e8ca72, LATEST, HERE
 # Forth words
 ##
 
+# obtain a word (token) from the terminal input buffer
+# arguments: a0 = buffer start address (TIB), a1 = buffer current address (TOIN)
+# returns: a0 = token buffer start address, a1 = token size (length in bytes)
 token:
-    li t1, 0x32                 # initialize temporary to 'space' character
+    li t1, 0x20                 # initialize temporary to 'space' character
     li t2, 0                    # initialize temporary counter to 0
 token_char:
     blt a1, a0, token_done      # compare the address of TOIN with the address of TIB
@@ -280,12 +303,21 @@ token_char:
     addi t2, t2, 1              # increment the token size for each non-space byte read
     j token_char                # loop to read the next character
 token_space:
+#    bgtu t2, zero, token_done   # check if size of token is greater than 0
+#    j token_char                # loop to read the next character
     beqz t2, token_char         # loop to read next character if token size is 0
     j token_done                # token reading is done
 token_done:
-    add a0, a1, t2              # add the size of the token with the address of TOIN to W
+#    beqz t2, token_not_found    # token was not found
     addi a0, a0, 1              # add 1 to W to account for TOIN offset pointer
     mv a1, t2                   # store the size in X
+    ret
+#token_not_found:
+#    li a1, 0                    # set size of X to 0 because the token was not found
+#    ret
+
+# FIXME
+error:
     ret
 
 # FIXME
@@ -293,9 +325,28 @@ defcode ":", 0x0102b5df, COLON, LATEST
     li a0, TIB          # load TIB into W
     li a1, TOIN         # load TOIN into X
     lw a1, 0(a1)        # load TOIN address value into X
-    call token
-    # TODO: rewrite TOIN pointer to value in a0
-    NEXT
+    call token          # read the token
+
+    beqz a1, error      # error if token size was 0
+
+    li t0, TOIN         # load TOIN into temporary
+    sw a0, 0(t0)        # store new address into TOIN
+    call djb2_hash      # hash the token
+
+    # load memory addresses from variables
+    li t0, HERE         # load the HERE variable into temporary
+    lw t0, 0(t0)        # load the new start address of the current word into temporary
+    li t1, LATEST       # load the LATEST variable into temporary
+    lw t1, 0(t1)        # load the address of previous word's memory location into temporary
+
+    # build the header in memory
+    sw t1, 0(t0)        # store the address of the previous word
+    sw a0, 4(t0)        # store the hash next
+
+    # TODO: hide the word before compilation
+
+    ret
+#    NEXT
 
 # FIXME
 defcode ";", 0x0102b5e0, SEMI, COLON
@@ -313,9 +364,4 @@ msgerr:
 msgredef:
     .ascii " redefined ok\n"
 
-.balign CELL            # align to CELL bytes boundary
-
-.text
-
-here:                   # next new word will go here
 ret
