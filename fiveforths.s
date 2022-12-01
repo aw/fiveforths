@@ -184,7 +184,6 @@ enter:
 # Forth primitives
 ##
 
-# FIXME: where are these used?
 .equ F_IMMED, 0x80000000 # 0x7fffffff
 .equ F_HIDDEN, 0x40000000 # 0xbfffffff
 
@@ -303,18 +302,12 @@ token_char:
     addi t2, t2, 1              # increment the token size for each non-space byte read
     j token_char                # loop to read the next character
 token_space:
-#    bgtu t2, zero, token_done   # check if size of token is greater than 0
-#    j token_char                # loop to read the next character
     beqz t2, token_char         # loop to read next character if token size is 0
     j token_done                # token reading is done
 token_done:
-#    beqz t2, token_not_found    # token was not found
     addi a0, a0, 1              # add 1 to W to account for TOIN offset pointer
     mv a1, t2                   # store the size in X
     ret
-#token_not_found:
-#    li a1, 0                    # set size of X to 0 because the token was not found
-#    ret
 
 # FIXME
 error:
@@ -323,30 +316,45 @@ error:
 # FIXME
 defcode ":", 0x0102b5df, COLON, LATEST
     li a0, TIB          # load TIB into W
-    li a1, TOIN         # load TOIN into X
-    lw a1, 0(a1)        # load TOIN address value into X
+    li t3, TOIN         # load the TOIN variable into unused temporary register
+    lw a1, 0(t3)        # load TOIN address value into X
     call token          # read the token
 
     beqz a1, error      # error if token size was 0
 
-    li t0, TOIN         # load TOIN into temporary
-    sw a0, 0(t0)        # store new address into TOIN
+    sw a0, 0(t3)        # store new address into TOIN variable
     call djb2_hash      # hash the token
 
-    # load memory addresses from variables
-    li t0, HERE         # load the HERE variable into temporary
-    lw t0, 0(t0)        # load the new start address of the current word into temporary
-    li t1, LATEST       # load the LATEST variable into temporary
-    lw t1, 0(t1)        # load the address of previous word's memory location into temporary
+    # set the hidden flag in the hash
+    li t0, F_HIDDEN      # load hidden flag into temporary
+    or a0, a0, t0        # hide the word
+
+    # copy the memory address of some variables to temporary registers
+    li t0, HERE
+    li t1, LATEST
+    la t2, enter        # load the codeword address into temporary # FIXME: enter or docol?
+
+    # load and update memory addresses from variables
+    lw t3, 0(t0)        # load the new start address of the current word into temporary (HERE)
+    lw t4, 0(t1)        # load the address of the previous word into temporary (LATEST)
+
+    # update LATEST variable
+    sw t3, 0(t1)        # store the current value of HERE into the LATEST variable
 
     # build the header in memory
-    sw t1, 0(t0)        # store the address of the previous word
-    sw a0, 4(t0)        # store the hash next
+    sw t4, 0(t3)        # store the address of the previous word
+    sw a0, 4(t3)        # store the hash
+    sw t2, 8(t3)        # store the codeword address
 
-    # TODO: hide the word before compilation
+    # update HERE variable
+    addi t3, t3, 12     # move the HERE pointer to the end of the word
+    sw t3, 0(t0)        # store the new address of HERE into the HERE variable
 
-    ret
-#    NEXT
+    # update STATE variable
+    li t0, STATE        # load the address of the STATE variable into temporary
+    li t1, 1            # set the STATE variable to compile mode (1 = compile)
+    sw t1, 0(t0)        # store the current state back into the STATE variable
+    NEXT
 
 # FIXME
 defcode ";", 0x0102b5e0, SEMI, COLON
