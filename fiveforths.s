@@ -118,11 +118,6 @@ Copyright (c) 2021 Alexander Williams, On-Prem <license@on-premises.com>
 
 .text
 
-docol:
-    PUSHRSP s1          # push IP onto the return stack
-    addi s1, a0, CELL   # skip code field in W by adding a CELL, store it in IP
-    NEXT
-
 # compute a hash of a word
 # arguments: a0 = buffer address, a1 = buffer size
 # returns: a0 = 32-bit hash value
@@ -148,10 +143,37 @@ djb2_hash_done:
 .text
 .global _start
 
+# FIXME: some of these registers should be re-initialized whenever there's an error
 _start:
-    la sp, __stacktop
-    j _testing
-    ret
+    # initialize stack pointers
+    la sp, __stacktop   # initialize DSP register
+    la s1, interpreter  # initialize IP register
+    li s2, RSP_TOP      # initialize RSP register
+    mv s3, zero         # initialize TOS register
+
+    # initialize function parameters
+    mv a0, zero         # initialize W register
+    mv a1, zero         # initialize X register
+    mv a2, zero         # initialize Y register
+    mv a3, zero         # initialize Z register
+
+    # initialize variables
+    li t0, STATE        # load STATE variable
+    sw zero, 0(t0)      # initialize STATE variable (0 = execute)
+
+    li t0, TIB          # load TIB memory address
+    li t1, TOIN         # load TOIN variable
+    sw t0, 0(t1)        # initialize TOIN variable to contain TIB start address
+
+    li t0, RAM_BASE     # load RAM_BASE memory address
+    li t1, HERE         # load HERE variable
+    sw t0, 0(t1)        # initialize HERE variable to contain RAM_BASE memory address
+
+    la t0, word_SEMI    # load address of the last word in Flash memory (;) for now
+    li t1, LATEST       # load LATEST variable
+    sw t0, 0(t1)        # initialize LATEST variable to contain word_SEMI memory address
+
+    j _testing # FIXME: remove this
 
 _testing:
     # preparing for creating a token
@@ -164,21 +186,7 @@ _testing:
     li t0, TOIN         # load TOIN variable memory address into temporary
     sw a1, 0(t0)        # store new address location from temporary in TOIN variable
 
-    # prepare for storing
-    li t0, HERE         # load HERE variable
-    li t1, RAM_BASE     # load RAM_BASE variable
-    sw t1, 0(t0)        # store RAM_BASE address in HERE variable
-    li t0, LATEST       # load LATEST variable
-    la t1, word_SEMI    # load address of the last word in Flash memory (;) for now
-    sw t1, 0(t0)        # store latest address in LATEST variable
     j body_COLON
-
-# TODO: fixme
-enter:
-    sw s1, 0(s2)        # store memory address from IP into RSP
-    addi s2, s2, CELL   # increment RSP by CELL size
-    addi s1, a0, CELL   # increment IP by W + CELL size
-    NEXT
 
 ##
 # Forth primitives
@@ -313,41 +321,43 @@ token_done:
 error:
     ret
 
-# FIXME
+# OK
 defcode ":", 0x0102b5df, COLON, LATEST
     li a0, TIB          # load TIB into W
     li t3, TOIN         # load the TOIN variable into unused temporary register
     lw a1, 0(t3)        # load TOIN address value into X
     call token          # read the token
 
+    # FIXME: add bounds check on a1 to ensure it isn't more than 32 chars (2^5)
     beqz a1, error      # error if token size was 0
 
     sw a0, 0(t3)        # store new address into TOIN variable
     call djb2_hash      # hash the token
 
-    # set the hidden flag in the hash
-    li t0, F_HIDDEN      # load hidden flag into temporary
-    or a0, a0, t0        # hide the word
+    # set the HIDDEN flag in the 2nd bit from the MSB (bit 30) of the hash
+    li t0, F_HIDDEN     # load hidden flag into temporary
+    or a0, a0, t0       # hide the word
 
     # copy the memory address of some variables to temporary registers
     li t0, HERE
     li t1, LATEST
-    la t2, enter        # load the codeword address into temporary # FIXME: enter or docol?
+    la a2, docol        # load the codeword address into Y working register
 
     # load and update memory addresses from variables
     lw t3, 0(t0)        # load the new start address of the current word into temporary (HERE)
     lw t4, 0(t1)        # load the address of the previous word into temporary (LATEST)
 
+    # FIXME: add bounds check to ensure there's at least 4 CELLS in memory to store this word (3+exit)
     # update LATEST variable
     sw t3, 0(t1)        # store the current value of HERE into the LATEST variable
 
     # build the header in memory
-    sw t4, 0(t3)        # store the address of the previous word
-    sw a0, 4(t3)        # store the hash
-    sw t2, 8(t3)        # store the codeword address
+    sw t4, 0*CELL(t3)   # store the address of the previous word
+    sw a0, 1*CELL(t3)   # store the hash
+    sw a2, 2*CELL(t3)   # store the codeword address
 
     # update HERE variable
-    addi t3, t3, 12     # move the HERE pointer to the end of the word
+    addi t3, t3, 3*CELL # move the HERE pointer to the end of the word
     sw t3, 0(t0)        # store the new address of HERE into the HERE variable
 
     # update STATE variable
@@ -356,8 +366,33 @@ defcode ":", 0x0102b5df, COLON, LATEST
     sw t1, 0(t0)        # store the current state back into the STATE variable
     NEXT
 
-# FIXME
-defcode ";", 0x0102b5e0, SEMI, COLON
+docol:
+    PUSHRSP s1          # push IP onto the return stack
+    addi s1, a2, CELL   # skip code field in Y by adding a CELL, store it in IP
+    NEXT
+
+# OK
+defcode ";", 0x8102b5e0, SEMI, COLON
+    # unhide the word
+    li t0, LATEST       # copy the memory address of LATEST into temporary
+    lw t0, 0(t0)        # load the address value into temporary
+    lw t1, 4(t0)        # load the hash into temporary
+    li t2, 0xbfffffff   # load hidden flag into temporary (~F_HIDDEN)
+    and t1, t1, t2      # unhide the word
+    sw t1, 4(t0)        # write the hash back to memory
+
+    # update HERE variable
+    li t0, HERE         # copy the memory address of HERE into temporary
+    la t1, code_EXIT    # load the codeword address into temporary # FIXME: why not body_EXIT?
+    sw t1, 0(t0)        # store the codeword address into HERE
+
+    # move HERE pointer
+    addi t1, t1, CELL   # move the HERE pointer by 1 CELL
+    sw t1, 0(t0)        # store the new address of HERE into the HERE variable
+
+    # update the STATE variable
+    li t0, STATE        # load the address of the STATE variable into temporary
+    sw zero, 0(t0)      # store the current state back into the STATE variable
     NEXT
 
 .balign CELL
@@ -372,4 +407,5 @@ msgerr:
 msgredef:
     .ascii " redefined ok\n"
 
-ret
+# here's where the program starts (the interpreter)
+interpreter:
