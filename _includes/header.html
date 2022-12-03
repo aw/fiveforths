@@ -1,0 +1,12 @@
+<header>
+  <div>
+    <a href="{{ "/" | prepend: site.baseurl | replace: '//', '/' }}">
+    {% assign owner_first_name = site.owner | split: " " %}
+      <h1>{{ site.title }}</h1>
+    </a>
+    <p style="text-align: center;">{{ site.description }}</p>
+    <div class="header-links">
+      {% include links.html %}
+    </div>
+  </div>
+</header>

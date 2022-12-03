@@ -1,0 +1,31 @@
+title: FiveForths
+description: 32-bit RISC-V Forth implementation for microcontrollers
+baseurl: "/"
+url: "https://aw.github.io/fiveforths"
+github_username:  aw
+
+# Build settings
+markdown: kramdown
+plugins:
+  - jekyll-feed
+
+source: .
+destination: ./_site
+permalink: /:title
+paginate: 10
+paginate_path: /page/:num/
+
+defaults:
+  -
+    scope:
+      path: ""
+      type: "posts"
+    values:
+      layout: "post"
+
+future: true
+plugins:
+  - jekyll-paginate
+  - jekyll-sitemap
+
+# Custom variables

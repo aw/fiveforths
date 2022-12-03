@@ -3,3 +3,8 @@
 *.elf
 *.o
 *.dump
+_site
+vendor/
+.sass-cache
+.jekyll-cache
+Gemfile.lock
