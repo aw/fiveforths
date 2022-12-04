@@ -173,6 +173,7 @@ _start:
     li t1, LATEST       # load LATEST variable
     sw t0, 0(t1)        # initialize LATEST variable to contain word_SEMI memory address
 
+_continue:
     j _testing # FIXME: remove this
 
 _testing:
