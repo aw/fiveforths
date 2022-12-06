@@ -178,8 +178,14 @@ table {
 
 th {
   text-align: left;
-  border-bottom: 1px dashed #b5e853;
+  border-right: 1px solid grey;
+  border-bottom: 1px dashed grey;
   padding: 5px 10px;
+}
+
+td {
+  border-right: 1px solid grey;
+  border-bottom: 1px solid grey;
 }
 
 td {

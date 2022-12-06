@@ -174,22 +174,22 @@ _start:
     sw t0, 0(t1)        # initialize LATEST variable to contain word_SEMI memory address
 
 _continue:
-    call _testing # FIXME: remove this
+    call uart_init
+    call gpio_init
     ret
 
-_testing:
-    # preparing for creating a token
-    li a0, TIB          # load TIB into W
-    li t0, 0x20202020   # load a bunch of spaces
-    sw t0, 4(a0)        # store 4 spaces in TIB
-    li t0, 0x70756420   # load word 'dup' into temporary
-    sw t0, 0(a0)        # store word in TIB address
-    addi a1, a0, 7      # increment TIB by 7 (size of token + 4 spaces)
-    li t0, TOIN         # load TOIN variable memory address into temporary
-    sw a1, 0(t0)        # store new address location from temporary in TOIN variable
+# Initialize the UART
+uart_init:
+    li t0, 0x40021000   # load base address of the RCU
+    lw t1, 0x18(t0)     # load value from the APB2 enable register (RCU_APB2EN)
 
-    #j body_COLON
-    ret
+    # enable the RCU clocks
+    li t2, (1 << 14) | (1 << 2) # set USART0EN (bit 14), PAEN (bit 2)
+    or t1, t1, t2       # add the enabled bits to the existing RCU_APB2EN value
+    sw t1, 0x18(t0)     # store value in RCU_APB2EN register at offset 0x18
+
+# Initialize the GPIO
+gpio_init:
 
 ##
 # Forth primitives
