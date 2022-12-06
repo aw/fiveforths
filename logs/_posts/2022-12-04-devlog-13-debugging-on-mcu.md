@@ -6,7 +6,7 @@
 
 ## Log 13
 
-Thanks to [Moving Forth](https://www.bradrodriguez.com/papers/moving1.htm), I finally understand how `COLON` works, and the purpose of `docol` and `enter`. Let's fix this.
+In this session I'll focus on debugging directly on the MCU with `gdb` and `openocd`.
 
 ### Debugging on MCU
 

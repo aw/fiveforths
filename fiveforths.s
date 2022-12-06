@@ -174,7 +174,8 @@ _start:
     sw t0, 0(t1)        # initialize LATEST variable to contain word_SEMI memory address
 
 _continue:
-    j _testing # FIXME: remove this
+    call _testing # FIXME: remove this
+    ret
 
 _testing:
     # preparing for creating a token
@@ -187,7 +188,8 @@ _testing:
     li t0, TOIN         # load TOIN variable memory address into temporary
     sw a1, 0(t0)        # store new address location from temporary in TOIN variable
 
-    j body_COLON
+    #j body_COLON
+    ret
 
 ##
 # Forth primitives
@@ -377,10 +379,10 @@ defcode ";", 0x8102b5e0, SEMI, COLON
     # unhide the word
     li t0, LATEST       # copy the memory address of LATEST into temporary
     lw t0, 0(t0)        # load the address value into temporary
-    lw t1, 4(t0)        # load the hash into temporary
+    lw t1, CELL(t0)     # load the hash into temporary
     li t2, 0xbfffffff   # load hidden flag into temporary (~F_HIDDEN)
     and t1, t1, t2      # unhide the word
-    sw t1, 4(t0)        # write the hash back to memory
+    sw t1, CELL(t0)     # write the hash back to memory
 
     # update HERE variable
     li t0, HERE         # copy the memory address of HERE into temporary

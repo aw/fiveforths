@@ -8,7 +8,8 @@ set confirm off
 # set backtrace limit to not have infinite backtrace loops
 set backtrace limit 32
 
+set pagination off
 monitor reset halt
-load
+#load
 break _start
 break _continue
