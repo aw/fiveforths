@@ -189,7 +189,7 @@ uart_init:
 
     # set the baud rate: USARTDIV = frequency (8 MHz) / baud rate (115200 bps)
     li t0, 0x40013800   # load USART0 base address
-    li t1, (8000000/(115200 * 16) << 4) | (8000000/(115200 * 16)) # use 16 oversampling
+    li t1, ((8000000/115200) & 0x0000fff0) | ((8000000/115200) & 0x0000000f) # load baud rate divider
     sw t1, 0x08(t0)     # store the value in the Baud rate register (USART_BAUD)
 
 # Initialize the GPIO

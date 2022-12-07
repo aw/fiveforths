@@ -43,7 +43,7 @@ All zeroes! What this means is all the clocks are running at 8MHz with the inter
 ```
     # set the baud rate: USARTDIV = frequency (8 MHz) / baud rate (115200 bps)
     li t0, 0x40013800   # load USART0 base address
-    li t1, (8000000/(115200 * 16) << 4) | (8000000/(115200 * 16))
+    li t1, ((8000000/115200) & 0x0000fff0) | ((8000000/115200) & 0x0000000f) # load baud rate divider
     sw t1, 0x08(t0)     # store the value in the Baud rate register (USART_BAUD)
 ```
 
@@ -51,14 +51,14 @@ And when we inspect with `GDB`:
 
 ```
 (gdb) x/th 0x40013800+0x08
-0x40013808:    0000000001000100
+0x40013808:    0000000001000101
 (gdb) x/x 0x40013800+0x08
-0x40013808:    0x0044
+0x40013808:    0x0045
 ```
 
-Now let's explain what just happened there. Once again, according to the above user manual, there is a way to calculate the `USARTDIV` in order for the MCU to generate the baud rate we want. The method is somewhat complex and is usually satisfied by a simpler `frequency / baud rate`. However I wanted to do it "correctly" so I used the above formula, which isolates the first 4 bits (`0:3`) as the fractional part, and the next 12 bits (`4:15`) by shifting the integer part (12 bits) to the left by 4 (`2^4)`) because those 12 bits are in position `4:15` not `0:11`. Finally it performs a bitwise `OR` of the integer and fraction in order to give us the exact value to be stored in the _Baud rate register_.
+Now let's explain what just happened there. Once again, according to the above user manual, there is a way to calculate the `USARTDIV` in order for the MCU to generate the baud rate we want. The method is somewhat complex and is usually satisfied by a simpler `frequency / baud rate`. However I wanted to do it "correctly" so I used the above formula, which isolates the first 4 bits (`0:3`) as the fractional part using the mask `0x0000000f`, and the next 12 bits (`4:15`) using the mask `0x0000fff0`. Finally it performs a bitwise `OR` of the integer and fraction in order to give us the exact value to be stored in the _Baud rate register_.
 
-When we examine the memory address `0x40013800` at the offset `0x08`, we can see the result is exactly `0x0044`. I know, I could have just hardcoded `0x0044` but that would make it much more difficult to change the frequency/baud rate in the future.
+When we examine the memory address `0x40013800` at the offset `0x08`, we can see the result is exactly `0x0045`. I know, I could have just hardcoded `0x0045` but that would make it much more difficult to change the frequency/baud rate in the future.
 
 ### Closing thoughts
 
