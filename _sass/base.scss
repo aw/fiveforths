@@ -273,6 +273,9 @@ a:active, a:focus {
   line-height: 50px;
   text-align: center;
 }
+.pagination a {
+  margin-left: 1em;
+}
 
 #wrapper {
   min-height: calc(100vh - 100px);
