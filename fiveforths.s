@@ -180,13 +180,17 @@ _continue:
 
 # Initialize the UART
 uart_init:
+    # enable the RCU clocks
     li t0, 0x40021000   # load base address of the RCU
     lw t1, 0x18(t0)     # load value from the APB2 enable register (RCU_APB2EN)
-
-    # enable the RCU clocks
     li t2, (1 << 14) | (1 << 2) # set USART0EN (bit 14), PAEN (bit 2)
     or t1, t1, t2       # add the enabled bits to the existing RCU_APB2EN value
     sw t1, 0x18(t0)     # store value in RCU_APB2EN register at offset 0x18
+
+    # set the baud rate: USARTDIV = frequency (8 MHz) / baud rate (115200 bps)
+    li t0, 0x40013800   # load USART0 base address
+    li t1, ((8000000/115200 & 0x0000fff0) << 4) | (8000000/115200 & 0x0000000f)
+    sw t1, 0x08(t0)     # store the value in the Baud rate register (USART_BAUD)
 
 # Initialize the GPIO
 gpio_init:
