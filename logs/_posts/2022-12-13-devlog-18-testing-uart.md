@@ -83,7 +83,7 @@ The interrupt handler does nothing for the moment except return using `mret`, wh
 
 In the future I might end up using a _vector table_ instead of a generic interrupt handler, and if I do then I'll simply replace the `interrupt_handler` with `vector_table` or something.. and define the vectors/addresses from there.
 
-Next is to actually perform the interrupt setup, but in my case I don't want to use interrupts, so I'll start by explicitly disabling them (even though they're technically disabled on reset):
+Next is to actually perform the interrupt setup, but in my case I don't want to use interrupts, so I'll start by explicitly disabling them:
 
 ```
 # Initialize the interrupt CSRs
