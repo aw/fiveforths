@@ -126,6 +126,47 @@ Copyright (c) 2021 Alexander Williams, On-Prem <license@on-premises.com>
 interrupt_handler:
     mret
 
+# Initialize the interrupt CSRs
+interrupt_init:
+    # disable global interrupts
+    csrc mstatus, 0x08  # mstatus = 0x300
+
+    # clear machine interrupt enable bits
+    csrs mie, zero      # mie = 0x304
+
+    # set interrupt handler jump address
+    la t0, interrupt_handler
+    csrw mtvec, t0      # mtvec = 0x305
+
+    ret
+
+# include board-specific functions
+.include "gd32vf103.s"
+
+##
+# I/O Helpers
+##
+
+uart_get:
+    li t0, USART0_BASE_ADDRESS  # load USART0 base address
+uart_get_loop:
+    lw t1, UART_RX_STATUS(t0)   # load value from status register
+    andi t1, t1, UART_RX_BIT    # load read data buffer not empty bit
+    beqz t1, uart_get_loop      # loop until ready to receive
+    lbu a0, UART_RX_DATA(t0)    # read character (zero-extended) from data register
+
+    ret
+
+uart_put:
+    li t0, USART0_BASE_ADDRESS  # load USART0 base address
+uart_put_loop:
+    lw t1, UART_TX_STATUS(t0)   # load value from status register
+    andi t1, t1, UART_TX_BIT    # load transmit data buffer empty bit
+    beqz t1, uart_put_loop      # loop until ready to send
+    sb a0, UART_TX_DATA(t0)     # send character to data register
+
+    ret
+
 ##
 # Forth
 ##
@@ -150,13 +191,52 @@ djb2_hash_done:
     li t1, 0x00ffffff   # load the bit mask ~0xFF000000
     and a0, t0, t1      # clear the top eight bits (used for flags and length)
     or a0, a0, t3       # add the length to the final hash value
+
     ret                 # a0 = final hash value
+
+# obtain a word (token) from the terminal input buffer
+# arguments: a0 = buffer start address (TIB), a1 = buffer current address (TOIN)
+# returns: a0 = token buffer start address, a1 = token size (length in bytes)
+token:
+    li t1, 0x20                 # initialize temporary to 'space' character
+    li t2, 0                    # initialize temporary counter to 0
+token_char:
+    blt a1, a0, token_done      # compare the address of TOIN with the address of TIB
+    lbu t0, 0(a1)               # read char from TOIN address
+    addi a1, a1, -1             # move TOIN pointer down
+    bgeu t1, t0, token_space    # compare char with space
+    addi t2, t2, 1              # increment the token size for each non-space byte read
+    j token_char                # loop to read the next character
+token_space:
+    beqz t2, token_char         # loop to read next character if token size is 0
+    j token_done                # token reading is done
+token_done:
+    addi a0, a0, 1              # add 1 to W to account for TOIN offset pointer
+    mv a1, t2                   # store the size in X
+
+    ret
 
 .text
 .global _start
 
-# FIXME: some of these registers should be re-initialized whenever there's an error
+# board boot initializations
 _start:
+    call interrupt_init # RISC-V interrupt CSR initialization
+    call uart_init      # board specific UART initialization
+    call gpio_init      # board specific GPIO initialization
+
+    # initialize HERE variable
+    li t0, RAM_BASE     # load RAM_BASE memory address
+    li t1, HERE         # load HERE variable
+    sw t0, 0(t1)        # initialize HERE variable to contain RAM_BASE memory address
+
+    # initialize LATEST variable
+    la t0, word_SEMI    # load address of the last word in Flash memory (;) for now
+    li t1, LATEST       # load LATEST variable
+    sw t0, 0(t1)        # initialize LATEST variable to contain word_SEMI memory address
+
+# reset the Forth stack pointers, registers, variables, and state
+reset:
     # initialize stack pointers
     la sp, __stacktop   # initialize DSP register
     la s1, interpreter  # initialize IP register
@@ -169,72 +249,48 @@ _start:
     mv a2, zero         # initialize Y register
     mv a3, zero         # initialize Z register
 
-    # initialize variables
+    # initialize STATE variable
     li t0, STATE        # load STATE variable
     sw zero, 0(t0)      # initialize STATE variable (0 = execute)
 
+tib_init:
+    # initialize TOIN variable
     li t0, TIB          # load TIB memory address
     li t1, TOIN         # load TOIN variable
+    li t2, TIB_TOP      # load TIB_TOP variable
     sw t0, 0(t1)        # initialize TOIN variable to contain TIB start address
+tib_zerofill:
+    # initialize the TIB
+    beq t2, t0,tib_done # loop until TIB_TOP == TIB
+    addi t2, t2, -CELL  # decrement TIB_TOP by 1 CELL
+    sw zero, 0(t2)      # zero-fill the memory address
+    j tib_zerofill      # repeat
+tib_done:
+    j interpreter       # jump to the main interpreter REPL
 
-    li t0, RAM_BASE     # load RAM_BASE memory address
-    li t1, HERE         # load HERE variable
-    sw t0, 0(t1)        # initialize HERE variable to contain RAM_BASE memory address
-
-    la t0, word_SEMI    # load address of the last word in Flash memory (;) for now
-    li t1, LATEST       # load LATEST variable
-    sw t0, 0(t1)        # initialize LATEST variable to contain word_SEMI memory address
-
-_continue:
-    call interrupt_init # RISC-V interrupt CSR initialization
-    call uart_init      # board specific UART initialization
-    call gpio_init      # board specific GPIO initialization
-
-# Test the UART functionality
-# 1. get a character, 2. send the character back
-main:
-    call uart_get
+# print an error message to the UART
+error:
+    li a0, ' '
     call uart_put
-    j main
+    li a0, '?'
+    call uart_put
+    li a0, '\n'
+    call uart_put
 
-# Initialize the interrupt CSRs
-interrupt_init:
-    # disable global interrupts
-    csrc mstatus, 0x08  # mstatus = 0x300
+    j reset
 
-    # clear machine interrupt enable bits
-    csrs mie, zero      # mie = 0x304
+# print an OK message to the uart
+ok:
+    li a0, ' '
+    call uart_put
+    li a0, 'o'
+    call uart_put
+    li a0, 'k'
+    call uart_put
+    li a0, '\n'
+    call uart_put
 
-    # set interrupt handler jump address
-    la t0, interrupt_handler
-    csrw mtvec, t0      # mtvec = 0x305
-
-    ret
-
-# include board-specific functions
-.include "gd32vf103.s"
-
-##
-# Helpers
-##
-
-uart_get:
-    li t0, USART0_BASE_ADDRESS  # load USART0 base address
-uart_get_loop:
-    lw t1, UART_RX_STATUS(t0)   # load value from status register
-    andi t1, t1, UART_RX_BIT    # load read data buffer not empty bit
-    beqz t1, uart_get_loop      # loop until ready to receive
-    lbu a0, UART_RX_DATA(t0)    # read character (zero-extended) from data register
-    ret
-
-uart_put:
-    li t0, USART0_BASE_ADDRESS  # load USART0 base address
-uart_put_loop:
-    lw t1, UART_TX_STATUS(t0)   # load value from status register
-    andi t1, t1, UART_TX_BIT    # load transmit data buffer empty bit
-    beqz t1, uart_put_loop      # loop until ready to send
-    sb a0, UART_TX_DATA(t0)     # send character to data register
-    ret
+    j interpreter
 
 ##
 # Forth primitives
@@ -335,40 +391,18 @@ defcode "latest", 0x06e8ca72, LATEST, HERE
 # Forth words
 ##
 
-# obtain a word (token) from the terminal input buffer
-# arguments: a0 = buffer start address (TIB), a1 = buffer current address (TOIN)
-# returns: a0 = token buffer start address, a1 = token size (length in bytes)
-token:
-    li t1, 0x20                 # initialize temporary to 'space' character
-    li t2, 0                    # initialize temporary counter to 0
-token_char:
-    blt a1, a0, token_done      # compare the address of TOIN with the address of TIB
-    lbu t0, 0(a1)               # read char from TOIN address
-    addi a1, a1, -1             # move TOIN pointer down
-    bgeu t1, t0, token_space    # compare char with space
-    addi t2, t2, 1              # increment the token size for each non-space byte read
-    j token_char                # loop to read the next character
-token_space:
-    beqz t2, token_char         # loop to read next character if token size is 0
-    j token_done                # token reading is done
-token_done:
-    addi a0, a0, 1              # add 1 to W to account for TOIN offset pointer
-    mv a1, t2                   # store the size in X
-    ret
-
-# FIXME
-error:
-    ret
-
 defcode ":", 0x0102b5df, COLON, LATEST
     li a0, TIB          # load TIB into W
     li t3, TOIN         # load the TOIN variable into unused temporary register
     lw a1, 0(t3)        # load TOIN address value into X
     call token          # read the token
 
-    # FIXME: add bounds check on a1 to ensure it isn't more than 32 chars (2^5)
-    beqz a1, error      # error if token size was 0
+    # bounds checks on token size
+    beqz a1, error      # error if token size is 0
+    li t0, 32           # load max token size  (2^5 = 32) in temporary
+    bgtu a1, t0, error  # error if token size is greater than 32
 
+    # store the word then hash it
     sw a0, 0(t3)        # store new address into TOIN variable
     call djb2_hash      # hash the token
 
@@ -382,21 +416,24 @@ defcode ":", 0x0102b5df, COLON, LATEST
     la a2, docol        # load the codeword address into Y working register
 
     # load and update memory addresses from variables
-    lw t3, 0(t0)        # load the new start address of the current word into temporary (HERE)
-    lw t4, 0(t1)        # load the address of the previous word into temporary (LATEST)
+    lw t2, 0(t0)        # load the new start address of the current word into temporary (HERE)
+    lw t3, 0(t1)        # load the address of the previous word into temporary (LATEST)
 
-    # FIXME: add bounds check to ensure there's at least 4 CELLS in memory to store this word (3+exit)
+    # bounds check on new word memory location
+    addi t4, t2, 3*CELL # prepare to move the HERE pointer to the end of the word
+    li t5, PAD          # load out of bounds memory address (PAD)
+    bgt t4, t5, error   # error if the memory address is out of bounds
+
     # update LATEST variable
-    sw t3, 0(t1)        # store the current value of HERE into the LATEST variable
+    sw t2, 0(t1)        # store the current value of HERE into the LATEST variable
 
     # build the header in memory
-    sw t4, 0*CELL(t3)   # store the address of the previous word
-    sw a0, 1*CELL(t3)   # store the hash
-    sw a2, 2*CELL(t3)   # store the codeword address
+    sw t3, 0*CELL(t2)   # store the address of the previous word
+    sw a0, 1*CELL(t2)   # store the hash
+    sw a2, 2*CELL(t2)   # store the codeword address
 
     # update HERE variable
-    addi t3, t3, 3*CELL # move the HERE pointer to the end of the word
-    sw t3, 0(t0)        # store the new address of HERE into the HERE variable
+    sw t4, 0(t0)        # store the new address of HERE into the HERE variable
 
     # update STATE variable
     li t0, STATE        # load the address of the STATE variable into temporary
@@ -420,12 +457,17 @@ defcode ";", 0x8102b5e0, SEMI, COLON
 
     # update HERE variable
     li t0, HERE         # copy the memory address of HERE into temporary
+    lw t2, 0(t0)        # load the HERE value into temporary
     la t1, code_EXIT    # load the codeword address into temporary # FIXME: why not body_EXIT?
     sw t1, 0(t0)        # store the codeword address into HERE
 
+    # bounds check on the exit memory location
+    addi t2, t2, CELL   # prepare to move the HERE pointer by 1 CELL
+    li t3, PAD          # load out of bounds memory address (PAD)
+    bgt t2, t3, error   # error if the memory address is out of bounds
+
     # move HERE pointer
-    addi t1, t1, CELL   # move the HERE pointer by 1 CELL
-    sw t1, 0(t0)        # store the new address of HERE into the HERE variable
+    sw t2, 0(t0)        # store the new address of HERE into the HERE variable
 
     # update the STATE variable
     li t0, STATE        # load the address of the STATE variable into temporary
@@ -434,15 +476,12 @@ defcode ";", 0x8102b5e0, SEMI, COLON
 
 .balign CELL
 
-# add a few strings which will be used in the program
 .section .rodata
-
-msgok:
-    .ascii " ok\n"
-msgerr:
-    .ascii "  ?\n"
-msgredef:
-    .ascii " redefined ok\n"
 
 # here's where the program starts (the interpreter)
 interpreter:
+    call uart_get       # read a character from UART
+    call uart_put       # send the character to UART
+
+    # FIXME: validate the character
+    j interpreter
