@@ -2,6 +2,14 @@
 # GD32VF103
 ##
 
+.equ USART0_BASE_ADDRESS, 0x40013800
+.equ UART_RX_STATUS, 0x00       # USART status register offset (USART_STAT)
+.equ UART_RX_DATA, 0x04         # data register offset (USART_DATA)
+.equ UART_TX_STATUS, 0x00       # USART status register offset (USART_STAT)
+.equ UART_TX_DATA, 0x04         # data register offset (USART_DATA)
+.equ UART_RX_BIT, (1 << 5)      # read data buffer not empty bit (RBNE)
+.equ UART_TX_BIT, (1 << 7)      # transmit data buffer empty bit (TBE)d
+
 # Initialize the UART
 uart_init:
     # enable the RCU clocks
@@ -45,23 +53,4 @@ gpio_init:
     sw t1, 0x04(t0)                         # store the value in the Port control register 1 (GPIOA_CTL1)
 
 gpio_done:
-    ret
-
-# Test the UART functionality
-# 1. get a character, 2. send the character back
-_test_uart:
-    li t0, 0x40013800           # load USART0 base address
-
-uart_get_loop:
-    lw t1, 0x00(t0)             # load value from status register (USART_STAT)
-    andi t1, t1, (1 << 5)       # load read data buffer not empty bit (RBNE)
-    beqz t1, uart_get_loop      # loop until ready to receive
-    lb a0, 0x04(t0)             # read character from data register (USART_DATA)
-
-uart_put_loop:
-    lw t1, 0x00(t0)             # load value from status register (USART_STAT)
-    andi t1, t1, (1 << 7)       # load transmit data buffer empty bit (TBE)
-    beqz t1, uart_put_loop      # loop until ready to send
-    sb a0, 0x04(t0)             # send character to data register (USART_DATA)
-
     ret

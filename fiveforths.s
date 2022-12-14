@@ -61,17 +61,18 @@ Copyright (c) 2021 Alexander Williams, On-Prem <license@on-premises.com>
     jr t0               # jump to the address in temporary
 .endm
 
-# pop top of data stack to register
+# pop top of data stack to register and move DSP to TOS
 .macro POP reg
-    lw \reg, 0(sp)      # load DSP value to temporary
+    mv \reg, s3         # copy TOS to register
+    lw s3, 0(sp)        # load DSP value to register
     addi sp, sp, CELL   # move the DSP up by 1 cell
 .endm
 
-# push register to top of stack
+# push register to top of stack and move TOS to DSP
 .macro PUSH reg
     addi sp, sp, -CELL  # move the DSP down by 1 cell
     sw s3, 0(sp)        # store the value in the TOS to the top of the DSP
-    addi s3, \reg, CELL # copy reg+CELL (old sp) to TOS
+    mv s3, \reg         # copy register into TOS
 .endm
 
 # push variable to top of stack
@@ -189,8 +190,11 @@ _continue:
     call uart_init      # board specific UART initialization
     call gpio_init      # board specific GPIO initialization
 
+# Test the UART functionality
+# 1. get a character, 2. send the character back
 main:
-    call _test_uart
+    call uart_get
+    call uart_put
     j main
 
 # Initialize the interrupt CSRs
@@ -211,6 +215,28 @@ interrupt_init:
 .include "gd32vf103.s"
 
 ##
+# Helpers
+##
+
+uart_get:
+    li t0, USART0_BASE_ADDRESS  # load USART0 base address
+uart_get_loop:
+    lw t1, UART_RX_STATUS(t0)   # load value from status register
+    andi t1, t1, UART_RX_BIT    # load read data buffer not empty bit
+    beqz t1, uart_get_loop      # loop until ready to receive
+    lbu a0, UART_RX_DATA(t0)    # read character (zero-extended) from data register
+    ret
+
+uart_put:
+    li t0, USART0_BASE_ADDRESS  # load USART0 base address
+uart_put_loop:
+    lw t1, UART_TX_STATUS(t0)   # load value from status register
+    andi t1, t1, UART_TX_BIT    # load transmit data buffer empty bit
+    beqz t1, uart_put_loop      # loop until ready to send
+    sb a0, UART_TX_DATA(t0)     # send character to data register
+    ret
+
+##
 # Forth primitives
 ##
 
@@ -219,13 +245,11 @@ interrupt_init:
 
 .equ word_NULL, 0
 
-# OK
 # @ ( addr -- x )       Fetch memory at addr
 defcode "@", 0x0102b5e5, FETCH, NULL
     lw s3, 0(s3)        # load address value from TOS (addr) into TOS (x)
     NEXT
 
-# OK
 # ! ( x addr -- )       Store x at addr
 defcode "!", 0x0102b5c6, STORE, FETCH
     lw t0, 0(sp)        # load the DSP value (x) into temporary
@@ -234,32 +258,27 @@ defcode "!", 0x0102b5c6, STORE, FETCH
     addi sp, sp, 2*CELL # move DSP up by 2 cells
     NEXT
 
-# OK
 # sp@ ( -- addr )       Get current data stack pointer
 defcode "sp@", 0x0388aac8, DSPFETCH, STORE
     PUSH sp             # store DSP in TOS
     NEXT
 
-# OK
 # rp@ ( -- addr )       Get current return stack pointer
 defcode "rp@", 0x0388a687, RSPFETCH, DSPFETCH
     PUSH s2             # store RSP in TOS
     NEXT
 
-# OK
 # 0= ( x -- f )         -1 if top of stack is 0, 0 otherwise
 defcode "0=", 0x025970b2, ZEQU, RSPFETCH
     seqz s3, s3         # store 1 in TOS if TOS is equal to 0, otherwise store 0
     NEXT
 
-# OK
 # + ( x1 x2 -- n )      Add the two values at the top of the stack
 defcode "+", 0x0102b5d0, ADD, ZEQU
     POP t0              # pop value into temporary
     add s3, s3, t0      # add values and store in TOS
     NEXT
 
-# OK
 # nand ( x1 x2 -- n )   Bitwise NAND the two values at the top of the stack
 defcode "nand", 0x049b0c66, NAND, ADD
     POP t0              # pop value into temporary
@@ -267,7 +286,6 @@ defcode "nand", 0x049b0c66, NAND, ADD
     not s3, s3          # store bitwise NOT of TOS into TOS
     NEXT
 
-# OK
 # exit ( r:addr -- )    Resume execution at address at the top of the return stack
 defcode "exit", 0x04967e3f, EXIT, NAND
     POPRSP s1           # pop RSP into IP
@@ -277,39 +295,38 @@ defcode "exit", 0x04967e3f, EXIT, NAND
 # Forth I/O
 ##
 
-# FIXME
+# key ( -- x )          Read 8-bit character from uart input
 defcode "key", 0x0388878e, KEY, EXIT
+    call uart_get       # read character from uart into W
+    PUSH a0             # store character into TOS
     NEXT
 
-# FIXME
+# emit ( x -- )         Write 8-bit character to uart output
 defcode "emit", 0x04964f74, EMIT, KEY
+    POP a0              # copy TOS into W
+    call uart_put       # send character from W to uart
     NEXT
 
 ##
 # Forth variables
 ##
 
-# OK
 defcode "tib", 0x0388ae44, TIB, EMIT
     PUSHVAR TIB         # store TIB variable value in TOS
     NEXT
 
-# OK
 defcode "state", 0x05614a06, STATE, TIB
     PUSHVAR STATE       # store STATE variable value in TOS
     NEXT
 
-# OK
 defcode ">in", 0x0387c89a, TOIN, STATE
     PUSHVAR TOIN        # store TOIN variable value in TOS
     NEXT
 
-# OK
 defcode "here", 0x0497d3a9, HERE, TOIN
     PUSHVAR HERE        # store HERE variable value in TOS
     NEXT
 
-# OK
 defcode "latest", 0x06e8ca72, LATEST, HERE
     PUSHVAR LATEST      # store LATEST variable value in TOS
     NEXT
@@ -343,7 +360,6 @@ token_done:
 error:
     ret
 
-# OK
 defcode ":", 0x0102b5df, COLON, LATEST
     li a0, TIB          # load TIB into W
     li t3, TOIN         # load the TOIN variable into unused temporary register
@@ -393,7 +409,6 @@ docol:
     addi s1, a2, CELL   # skip code field in Y by adding a CELL, store it in IP
     NEXT
 
-# OK
 defcode ";", 0x8102b5e0, SEMI, COLON
     # unhide the word
     li t0, LATEST       # copy the memory address of LATEST into temporary
