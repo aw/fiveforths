@@ -36,6 +36,17 @@ Copyright (c) 2021 Alexander Williams, On-Prem <license@on-premises.com>
 .equ FORTH_SIZE, PAD - RAM_BASE         # remaining memory for Forth
 
 ##
+# Interpreter constants
+##
+
+.equ CHAR_NEWLINE, '\n'         # newline character 0x0A
+.equ CHAR_SPACE, ' '            # space character 0x20
+.equ CHAR_BACKSPACE, '\b'       # backspace character 0x08
+.equ CHAR_COMMENT, '\\'         # backslash character 0x5C
+.equ CHAR_COMMENT_OPARENS, '('  # open parenthesis character 0x28
+.equ CHAR_COMMENT_CPARENS, ')'  # close parenthesis character 0x29
+
+##
 # Forth registers
 ##
 
@@ -50,7 +61,7 @@ Copyright (c) 2021 Alexander Williams, On-Prem <license@on-premises.com>
 # s3 = TOS = top of stack pointer (data stack)
 
 ##
-# Macros to boost performance
+# Macros
 ##
 
 # jump to the next subroutine, appended to each primitive
@@ -111,6 +122,16 @@ Copyright (c) 2021 Alexander Williams, On-Prem <license@on-premises.com>
     .balign CELL        # align to CELL bytes boundary
     .globl body_\label
   body_\label :         # assembly code below
+.endm
+
+# check a character
+.macro checkchar char, dest
+    call uart_get       # read a character from UART
+    call uart_put       # send the character to UART
+
+    # validate the character which is located in the W (a0) register
+    li t0, \char        # load character into temporary
+    beq a0, t0, \dest   # jump to the destination if the char matches
 .endm
 
 .text
@@ -270,27 +291,27 @@ tib_done:
 
 # print an error message to the UART
 error:
-    li a0, ' '
+    li a0, CHAR_SPACE
     call uart_put
     li a0, '?'
     call uart_put
-    li a0, '\n'
+    li a0, CHAR_NEWLINE
     call uart_put
 
-    j reset
+    j reset             # jump to reset the stack pointers, variables, etc before jumping to the interpreter
 
 # print an OK message to the uart
 ok:
-    li a0, ' '
+    li a0, CHAR_SPACE
     call uart_put
     li a0, 'o'
     call uart_put
     li a0, 'k'
     call uart_put
-    li a0, '\n'
+    li a0, CHAR_NEWLINE
     call uart_put
 
-    j interpreter
+    j tib_init          # jump to reset the terminal input buffer before jumping to the interpreter
 
 ##
 # Forth primitives
@@ -394,7 +415,7 @@ defcode "latest", 0x06e8ca72, LATEST, HERE
 defcode ":", 0x0102b5df, COLON, LATEST
     li a0, TIB          # load TIB into W
     li t3, TOIN         # load the TOIN variable into unused temporary register
-    lw a1, 0(t3)        # load TOIN address value into X
+    lw a1, 0(t3)        # load TOIN address value into X working register
     call token          # read the token
 
     # bounds checks on token size
@@ -480,8 +501,39 @@ defcode ";", 0x8102b5e0, SEMI, COLON
 
 # here's where the program starts (the interpreter)
 interpreter:
-    call uart_get       # read a character from UART
-    call uart_put       # send the character to UART
+    li t2, TIB                                      # load TIB memory address
+    li t3, TOIN                                     # load the TOIN variable into unused temporary register
+    lw a1, 0(t3)                                    # load TOIN address value into X working register
 
-    # FIXME: validate the character
+    # validate the character which is located in the W (a0) register
+    checkchar CHAR_COMMENT, skip_comment            # check if character is a comment
+
+    li t0, CHAR_COMMENT_OPARENS                     # load opening parens into temporary
+    beq a0, t0, skip_oparens                        # skip the opening parens if it matches
+
+    li t0, CHAR_BACKSPACE                           # load backspace into temporary
+    beq a0, t0, process_backspace                   # process the backspace if it matches
+
     j interpreter
+
+skip_comment:
+    checkchar CHAR_NEWLINE, interpreter             # check if character is a newline
+    j skip_comment                                  # loop until it's a newline
+
+skip_oparens:
+    checkchar CHAR_COMMENT_CPARENS, interpreter     # check if character is a closing parens
+    j skip_oparens                                  # loop until it's a closing parens
+
+process_backspace:
+    # erase the previous character on screen by sending a space then backspace character
+    li a0, ' '
+    call uart_put
+    li a0, '\b'
+    call uart_put
+
+    # erase a character from the terminal input buffer (TIB) if there is one
+    beq a1, t2, interpreter                         # return to interpreter if TOIN == TIB
+    addi a1, a1, -1                                 # decrement TOIN by 1 to erase a character
+    sw a1, 0(t3)                                    # store new TOIN value in memory
+
+    j interpreter                                   # return to the interpreter after erasing the character
