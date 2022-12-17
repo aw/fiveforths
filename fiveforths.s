@@ -274,6 +274,7 @@ reset:
     li t0, STATE        # load STATE variable
     sw zero, 0(t0)      # initialize STATE variable (0 = execute)
 
+# reset the terminal input buffer
 tib_init:
     # initialize TOIN variable
     li t0, TIB          # load TIB memory address
@@ -300,7 +301,7 @@ error:
 
     j reset             # jump to reset the stack pointers, variables, etc before jumping to the interpreter
 
-# print an OK message to the uart
+# print an OK message to the UART
 ok:
     li a0, CHAR_SPACE
     call uart_put
@@ -412,6 +413,7 @@ defcode "latest", 0x06e8ca72, LATEST, HERE
 # Forth words
 ##
 
+# : ( -- )              # Start the definition of a new word
 defcode ":", 0x0102b5df, COLON, LATEST
     li a0, TIB          # load TIB into W
     li t3, TOIN         # load the TOIN variable into unused temporary register
@@ -467,6 +469,7 @@ docol:
     addi s1, a2, CELL   # skip code field in Y by adding a CELL, store it in IP
     NEXT
 
+# ; ( -- )              # End the definition of a new word
 defcode ";", 0x8102b5e0, SEMI, COLON
     # unhide the word
     li t0, LATEST       # copy the memory address of LATEST into temporary

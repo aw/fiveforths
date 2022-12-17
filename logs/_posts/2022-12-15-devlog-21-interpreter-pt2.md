@@ -1,7 +1,7 @@
 # December 15, 2022
 
 1. [Log 21](#log-21)
-2. [Bug fix](#bug-fx)
+2. [Bug fix](#bug-fix)
 3. [Interpreter pt2](#interpreter-pt2)
 4. [Closing thoughts](#closing-thoughts)
 
