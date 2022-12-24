@@ -219,8 +219,8 @@ djb2_hash_done:
 # arguments: a0 = buffer start address (TIB), a1 = buffer current address (TOIN)
 # returns: a0 = token buffer start address, a1 = token size (length in bytes)
 token:
-    li t1, 0x20                 # initialize temporary to 'space' character
-    li t2, 0                    # initialize temporary counter to 0
+    li t1, CHAR_SPACE           # initialize temporary to 'space' character
+    mv t2, zero                 # initialize temporary counter to 0
 token_char:
     blt a1, a0, token_done      # compare the address of TOIN with the address of TIB
     lbu t0, 0(a1)               # read char from TOIN address

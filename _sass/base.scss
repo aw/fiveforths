@@ -152,11 +152,11 @@ blockquote {
 
 pre {
   background: rgba(0, 0, 0, 0.9);
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.60);
   padding: 10px;
   font-size: 16px;
   color: #b5e853;
-  border-radius: 2px;
+  border-radius: 4px;
   text-wrap: normal;
   overflow: auto;
   overflow-y: hidden;
@@ -164,11 +164,11 @@ pre {
 
 code.highlighter-rouge {
   background: rgba(0,0,0,0.9);
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.60);
   padding: 0px 3px;
   margin: 0px -3px;
   color: #aa759f;
-  border-radius: 2px;
+  border-radius: 4px;
 }
 
 table {
