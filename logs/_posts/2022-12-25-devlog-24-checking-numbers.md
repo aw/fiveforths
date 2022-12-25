@@ -35,7 +35,7 @@ number:
 
 The reason is I actually want to store a number with the 3 first flag bits. I'll use the currently unused _user-defined_ flag and set it to `1` if the value is a number, or `0` otherwise (the current default). This will make it _super easy_ to identify a number in memory as opposed to a word's memory address. For now, that means we'll limit the actual size of a number to 29 bits instead of 32. We want to quickly exit the loop if the token is too long, so we add a guard right at the start of the function.
 
-Next, we want to initialize a few temporaries to so important values that we'll use throughout our number conversion loop:
+Next, we want to initialize a few temporaries to some important values that we'll use throughout our number conversion loop:
 
 ```
     mv t0, zero                 # initialize temporary to 0: holds the final integer
@@ -53,7 +53,6 @@ Next, we want to check if the first character in the token is a _minus_ sign (`0
     li t4, 1                    # number is negative, store a 1 flag in temporary
     addi a0, a0, 1              # increment buffer address by 1 character
     addi a1, a1, -1             # decrease buffer size by 1
-
 ```
 
 Now we enter our digit checking loop, which performs a few validations on the character we've loaded. The first thing to do in the loop is exit the loop if the buffer is 0:

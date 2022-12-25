@@ -238,16 +238,16 @@ token_done:
 
     ret
 
-# convert a string token to an integer (max 29 bits)
+# convert a string token to an integer (max 32 bits)
 # arguments: a0 = token buffer start address, a1 = token size (length in bytes)
-# returns: a0 = signed integer value, a1 = 1=OK, 0=ERROR
+# returns: a0 = integer value, a1 = 1=OK, 0=ERROR
 number:
-    li t1, 9                    # initialize temporary to 9: log10(2^29) = 8 + 1 = max 9 characters
-    bgtu a1, t1, number_error   # if token is more than 9 characters, it's too long to be an integer
+    li t1, 10                   # initialize temporary to 10: floor(log10(2^32)) = 9 + 1 = max 10 characters
+    addi t2, t1, 1              # initialize temporary to 11: max characters + 1 for minus sign
+    bgtu a1, t2, number_error   # if token is more than 11 characters, it's too long to be an integer
     mv t0, zero                 # initialize temporary to 0: holds the final integer
     li t3, CHAR_MINUS           # initialize temporary to minus character '-'
     mv t4, zero                 # initialize temporary to 0: sign flag of integer
-    li t5, 10                   # initialize temporary to 10: multiplier used to convert the number
     lbu t2, 0(a0)               # load first character from W working register
     bne t2, t3, number_digit    # jump to number digit loop if the first character is not a minus sign
     # first character is a minus sign, so the number will be negative
@@ -262,9 +262,8 @@ number_digit:
     beqz a1, number_done        # if the size of the buffer is 0 then we're done
     lbu t2, 0(a0)               # load next character into temporary
     addi t2, t2, -0x30          # subtract 0x30 from the character
-    bltz t2, number_error       # check if character is lower than 0, if yes then error
-    bgtu t2, t1, number_error   # check if character is greater than 9, if yes then error
-    mul t0, t0, t5              # multiply previous number by 10 (base 10)
+    bgeu t2, t1, number_error   # check if character is < 0 or >= 10
+    mul t0, t0, t1              # multiply previous number by 10 (base 10)
     add t0, t0, t2              # add previous number to current digit
     addi a0, a0, 1              # increment buffer address by 1 character
     addi a1, a1, -1             # decrease buffer size by 1
@@ -276,8 +275,8 @@ number_done:
     beqz t4, number_store       # don't negate the number if it's positive
     neg t0, t0                  # negate the number using two's complement
 number_store:
-    li t1, (2^29)-1             # largest acceptable number size: 29 bits
-    bgt t0, t1, number_error    # check if the signed number is larger than 29 bits
+    li t1, 0xFFFFFFFF           # load the largest acceptable number size: 32 bits
+    bgt t0, t1, number_error    # check if the number is larger than 32 bits
     mv a0, t0                   # copy final number to W working register
     li a1, 1                    # number is an integer, return 1
     ret
