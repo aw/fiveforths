@@ -238,13 +238,11 @@ token_done:
 
     ret
 
-# convert a string token to an integer (max 32 bits)
+# convert a string token to a 32-bit integer
 # arguments: a0 = token buffer start address, a1 = token size (length in bytes)
 # returns: a0 = integer value, a1 = 1=OK, 0=ERROR
 number:
-    li t1, 10                   # initialize temporary to 10: floor(log10(2^32)) = 9 + 1 = max 10 characters
-    addi t2, t1, 1              # initialize temporary to 11: max characters + 1 for minus sign
-    bgtu a1, t2, number_error   # if token is more than 11 characters, it's too long to be an integer
+    li t1, 10                   # initialize temporary to 10: multiplier
     mv t0, zero                 # initialize temporary to 0: holds the final integer
     li t3, CHAR_MINUS           # initialize temporary to minus character '-'
     mv t4, zero                 # initialize temporary to 0: sign flag of integer
@@ -275,8 +273,6 @@ number_done:
     beqz t4, number_store       # don't negate the number if it's positive
     neg t0, t0                  # negate the number using two's complement
 number_store:
-    li t1, 0xFFFFFFFF           # load the largest acceptable number size: 32 bits
-    bgt t0, t1, number_error    # check if the number is larger than 32 bits
     mv a0, t0                   # copy final number to W working register
     li a1, 1                    # number is an integer, return 1
     ret
