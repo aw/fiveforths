@@ -40,6 +40,7 @@ Copyright (c) 2021 Alexander Williams, On-Prem <license@on-premises.com>
 ##
 
 .equ CHAR_NEWLINE, '\n'         # newline character 0x0A
+.equ CHAR_CARRIAGE, '\r'        # carriage return character 0x13
 .equ CHAR_SPACE, ' '            # space character 0x20
 .equ CHAR_BACKSPACE, '\b'       # backspace character 0x08
 .equ CHAR_COMMENT, '\\'         # backslash character 0x5C
@@ -233,7 +234,6 @@ token_space:
     beqz t2, token_char         # loop to read next character if token size is 0
     j token_done                # token reading is done
 token_done:
-    addi a0, a0, 1              # add 1 to W to account for TOIN offset pointer
     mv a1, t2                   # store the size in X
 
     ret
@@ -299,10 +299,10 @@ _start:
 # reset the Forth stack pointers, registers, variables, and state
 reset:
     # initialize stack pointers
-    la sp, __stacktop   # initialize DSP register
-    la s1, interpreter  # initialize IP register
-    li s2, RSP_TOP      # initialize RSP register
-    mv s3, zero         # initialize TOS register
+    la sp, __stacktop           # initialize DSP register
+    la s1, interpreter_start    # initialize IP register
+    li s2, RSP_TOP              # initialize RSP register
+    mv s3, zero                 # initialize TOS register
 
     # initialize function parameters
     mv a0, zero         # initialize W register
@@ -328,7 +328,7 @@ tib_zerofill:
     sw zero, 0(t2)      # zero-fill the memory address
     j tib_zerofill      # repeat
 tib_done:
-    j interpreter       # jump to the main interpreter REPL
+    j interpreter_start # jump to the main interpreter REPL
 
 # print an error message to the UART
 error:
@@ -543,29 +543,44 @@ defcode ";", 0x8102b5e0, SEMI, COLON
 .section .rodata
 
 # here's where the program starts (the interpreter)
+interpreter_start:
+    li t2, TIB                                  # load TIB memory address
+    li t3, TOIN                                 # load the TOIN variable into unused temporary register
+    lw a1, 0(t3)                                # load TOIN address value into X working register
+
 interpreter:
-    li t2, TIB                                      # load TIB memory address
-    li t3, TOIN                                     # load the TOIN variable into unused temporary register
-    lw a1, 0(t3)                                    # load TOIN address value into X working register
-
     # validate the character which is located in the W (a0) register
-    checkchar CHAR_COMMENT, skip_comment            # check if character is a comment
+    checkchar CHAR_COMMENT, skip_comment        # check if character is a comment
 
-    li t0, CHAR_COMMENT_OPARENS                     # load opening parens into temporary
-    beq a0, t0, skip_oparens                        # skip the opening parens if it matches
+    li t0, CHAR_COMMENT_OPARENS                 # load opening parens into temporary
+    beq a0, t0, skip_oparens                    # skip the opening parens if it matches
 
-    li t0, CHAR_BACKSPACE                           # load backspace into temporary
-    beq a0, t0, process_backspace                   # process the backspace if it matches
+    li t0, CHAR_BACKSPACE                       # load backspace into temporary
+    beq a0, t0, process_backspace               # process the backspace if it matches
 
-    j interpreter
+    li t0, CHAR_CARRIAGE                        # load carriage return into temporary
+    beq a0, t0, process_carriage                # process the carriage return if it matches
+
+    # TODO: check if character is printable
+
+interpreter_tib:
+    # add the character to the TIB
+    li t4, TIB_TOP                              # load TIB_TOP memory address
+    bge a1, t4, error                           # error if the terminal input buffer is full # FIXME: handle this better
+    sb a0, 0(a1)                                # store the character from W register in the TIB
+    addi a1, a1, 1                              # increment TOIN value by 1
+    li t0, CHAR_NEWLINE                         # load newline into temporary
+    beq a0, t0, process_token                   # process the token if it matches
+
+    j interpreter                               # return to the interpreter if it's not a newline
 
 skip_comment:
-    checkchar CHAR_NEWLINE, interpreter             # check if character is a newline
-    j skip_comment                                  # loop until it's a newline
+    checkchar CHAR_NEWLINE, interpreter         # check if character is a newline
+    j skip_comment                              # loop until it's a newline
 
 skip_oparens:
-    checkchar CHAR_COMMENT_CPARENS, interpreter     # check if character is a closing parens
-    j skip_oparens                                  # loop until it's a closing parens
+    checkchar CHAR_COMMENT_CPARENS, interpreter # check if character is a closing parens
+    j skip_oparens                              # loop until it's a closing parens
 
 process_backspace:
     # erase the previous character on screen by sending a space then backspace character
@@ -575,8 +590,27 @@ process_backspace:
     call uart_put
 
     # erase a character from the terminal input buffer (TIB) if there is one
-    beq a1, t2, interpreter                         # return to interpreter if TOIN == TIB
-    addi a1, a1, -1                                 # decrement TOIN by 1 to erase a character
-    sw a1, 0(t3)                                    # store new TOIN value in memory
+    beq a1, t2, interpreter # return to interpreter if TOIN == TIB
+    addi a1, a1, -1         # decrement TOIN by 1 to erase a character
+    sw a1, 0(t3)            # store new TOIN value in memory
 
-    j interpreter                                   # return to the interpreter after erasing the character
+    j interpreter           # return to the interpreter after erasing the character
+
+process_carriage:
+    li a0, CHAR_NEWLINE     # convert a carriage return to a newline
+    j interpreter_tib       # jump to add the character to the TIB
+
+process_token:
+    li a0, CHAR_SPACE       # convert newline to a space
+    sb a0, -1(a1)           # replace previous newline character with space in W register
+
+    # process the token
+    mv a0, t2               # load the TIB address in the W working register
+    call token              # read the token
+
+    # bounds checks on token size
+    beqz a1, ok             # ok if token size is 0
+    li t0, 32               # load max token size  (2^5 = 32) in temporary
+    bgtu a1, t0, error      # error if token size is greater than 32
+
+    call djb2_hash          # hash the token

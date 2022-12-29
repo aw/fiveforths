@@ -11,5 +11,3 @@ set backtrace limit 32
 set pagination off
 monitor reset halt
 #load
-break _continue
-break gpio_done
