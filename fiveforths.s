@@ -48,6 +48,12 @@ Copyright (c) 2021 Alexander Williams, On-Prem <license@on-premises.com>
 .equ CHAR_COMMENT_CPARENS, ')'  # close parenthesis character 0x29
 .equ CHAR_MINUS, '-'            # minus character 0x2D
 
+.equ F_IMMEDIATE, 0x80000000    # inverse = 0x7fffffff, immediate flag mask
+.equ F_HIDDEN, 0x40000000       # inverse = 0xbfffffff, hidden flag mask
+.equ F_USER, 0x20000000         # inverse = 0xdfffffff, user flag mask
+.equ FLAGS_MASK, 0xe0000000     # inverse = 0x1fffffff, 3-bit flags mask
+.equ FLAGS_LEN, 0xff000000      # inverse = 0x00ffffff, 8-bit flags+length mask
+
 ##
 # Forth registers
 ##
@@ -211,7 +217,7 @@ djb2_hash_loop:
     addi a1, a1, -1     # decrease buffer size by 1
     j djb2_hash_loop    # repeat
 djb2_hash_done:
-    li t1, 0x00ffffff   # load the bit mask ~0xFF000000
+    li t1, ~FLAGS_LEN   # load the inverted 8-bit flags+length mask into temporary
     and a0, t0, t1      # clear the top eight bits (used for flags and length)
     or a0, a0, t3       # add the length to the final hash value
 
@@ -358,9 +364,6 @@ ok:
 # Forth primitives
 ##
 
-.equ F_IMMED, 0x80000000 # 0x7fffffff
-.equ F_HIDDEN, 0x40000000 # 0xbfffffff
-
 .equ word_NULL, 0
 
 # @ ( addr -- x )       Fetch memory at addr
@@ -470,7 +473,7 @@ defcode ":", 0x0102b5df, COLON, LATEST
     call djb2_hash      # hash the token
 
     # set the HIDDEN flag in the 2nd bit from the MSB (bit 30) of the hash
-    li t0, F_HIDDEN     # load hidden flag into temporary
+    li t0, F_HIDDEN     # load the HIDDEN flag into temporary
     or a0, a0, t0       # hide the word
 
     # copy the memory address of some variables to temporary registers
@@ -515,7 +518,7 @@ defcode ";", 0x8102b5e0, SEMI, COLON
     li t0, LATEST       # copy the memory address of LATEST into temporary
     lw t0, 0(t0)        # load the address value into temporary
     lw t1, CELL(t0)     # load the hash into temporary
-    li t2, 0xbfffffff   # load hidden flag into temporary (~F_HIDDEN)
+    li t2, ~F_HIDDEN    # load the inverted HIDDEN flag into temporary
     and t1, t1, t2      # unhide the word
     sw t1, CELL(t0)     # write the hash back to memory
 
