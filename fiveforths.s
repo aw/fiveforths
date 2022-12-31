@@ -74,10 +74,9 @@ Copyright (c) 2021 Alexander Williams, On-Prem <license@on-premises.com>
 
 # jump to the next subroutine, appended to each primitive
 .macro NEXT
-    lw a0, 0(s1)        # load memory address from IP into W
+    mv a0, s1           # load memory address from IP into W
     addi s1, s1, CELL   # increment IP by CELL size
-    lw t0, 0(a0)        # load memory address from W into temporary
-    jr t0               # jump to the address in temporary
+    jr a0               # jump to the address in W
 .endm
 
 # pop top of data stack to register and move DSP to TOS
@@ -574,8 +573,15 @@ interpreter_start:
     lw a1, 0(t3)                                # load TOIN address value into X working register
 
 interpreter:
+    call uart_get                               # read a character from UART
+    li t4, CHAR_NEWLINE                         # load newline into temporary
+    beq a0, t4, skip_send                       # don't send the character if it's a newline
+    call uart_put                               # send the character to UART
+
+skip_send:
     # validate the character which is located in the W (a0) register
-    checkchar CHAR_COMMENT, skip_comment        # check if character is a comment
+    li t0, CHAR_COMMENT                         # load comment character into temporary
+    beq a0, t0, skip_comment                    # skip the comment if it matches
 
     li t0, CHAR_COMMENT_OPARENS                 # load opening parens into temporary
     beq a0, t0, skip_oparens                    # skip the opening parens if it matches
@@ -662,3 +668,16 @@ process_token:
     or t0, t0, t1           # logical OR the immediate flag and state
     addi t0, t0, -1         # decrement the result by 1
     beqz t0, compile        # compile the word if the result is 0
+
+.balign CELL
+execute:
+    la s1, ok               # load the address of the interpreter into the IP register
+    addi a0, a1, 2*CELL     # increment the address of the found word by 8 to get the codeword address
+    lw t0, 0(a0)            # load memory address from W into temporary
+execute_done:
+    jr t0                   # jump to the address in temporary
+
+.balign CELL
+compile:
+compile_done:
+    j ok
