@@ -357,6 +357,7 @@ tib_zerofill:
 tib_done:
     j interpreter_start # jump to the main interpreter REPL
 
+.balign CELL
 # print an error message to the UART
 error:
     li a0, CHAR_SPACE
@@ -368,6 +369,7 @@ error:
 
     j reset             # jump to reset the stack pointers, variables, etc before jumping to the interpreter
 
+.balign CELL
 # print an OK message to the UART
 ok:
     li a0, CHAR_SPACE
@@ -631,6 +633,7 @@ process_carriage:
     li a0, CHAR_NEWLINE     # convert a carriage return to a newline
     j interpreter_tib       # jump to add the character to the TIB
 
+.balign CELL
 process_token:
     li a0, CHAR_SPACE       # convert newline to a space
     sb a0, -1(a1)           # replace previous newline character with space in W register

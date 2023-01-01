@@ -10,6 +10,7 @@
 .equ UART_RX_BIT, (1 << 5)      # read data buffer not empty bit (RBNE)
 .equ UART_TX_BIT, (1 << 7)      # transmit data buffer empty bit (TBE)d
 
+.balign CELL
 # Initialize the UART
 uart_init:
     # enable the RCU clocks
@@ -38,6 +39,7 @@ uart_init:
 uart_done:
     ret
 
+.balign CELL
 # Initialize the GPIO
 gpio_init:
     # configure TX on pin 9 of port A (0b1011)
