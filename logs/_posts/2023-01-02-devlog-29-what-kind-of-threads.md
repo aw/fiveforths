@@ -77,9 +77,7 @@ and then inspecting the `TOS` (`s3`) register to see what it contains:
 
 ```
 (gdb) i r s3
-s3             0x20000000	536870912
-(gdb) x/xw 0x20000000
-0x20000000:	0x080004f0
+s3             0x80004f0	134218992
 (gdb) x/xw 0x080004f0
 0x80004f0 <word_SEMI>:	0x080004e4
 ```
