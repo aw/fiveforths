@@ -74,7 +74,7 @@ Copyright (c) 2021 Alexander Williams, On-Prem <license@on-premises.com>
 
 # jump to the next subroutine, appended to each primitive
 .macro NEXT
-    mv a0, s1           # load memory address from IP into W
+    lw a0, 0(s1)        # load memory address from IP into W
     addi s1, s1, CELL   # increment IP by CELL size
     jr a0               # jump to the address in W
 .endm
@@ -502,7 +502,7 @@ defcode ":", 0x0102b5df, COLON, LATEST
     # copy the memory address of some variables to temporary registers
     li t0, HERE
     li t1, LATEST
-    la a2, docol        # load the codeword address into Y working register
+    la a2, .addr        # load the codeword address into Y working register
 
     # load and update memory addresses from variables
     lw t2, 0(t0)        # load the new start address of the current word into temporary (HERE)
@@ -534,6 +534,8 @@ docol:
     PUSHRSP s1          # push IP onto the return stack
     addi s1, a2, CELL   # skip code field in Y by adding a CELL, store it in IP
     NEXT
+
+.addr: .word docol      # indirect jump to docol from a colon definition
 
 # ; ( -- )              # End the definition of a new word
 defcode ";", 0x8102b5e0, SEMI, COLON
@@ -674,11 +676,13 @@ process_token:
 
 .balign CELL
 execute:
-    la s1, ok               # load the address of the interpreter into the IP register
+    la s1, .loop            # load the address of the interpreter into the IP register
     addi a0, a1, 2*CELL     # increment the address of the found word by 8 to get the codeword address
     lw t0, 0(a0)            # load memory address from W into temporary
 execute_done:
     jr t0                   # jump to the address in temporary
+
+.loop: .word ok             # indirect jump to interpreter after executing a word
 
 .balign CELL
 compile:
