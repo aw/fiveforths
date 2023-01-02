@@ -18,7 +18,7 @@ READELF := $(CROSS)readelf
 build: $(PROGNAME).o $(PROGNAME).elf $(PROGNAME).bin $(PROGNAME).hex $(PROGNAME).dump
 
 %.o: %.s
-		$(AS) $(CFLAGS) -march=$(ARCH) -o $@ $<
+		$(AS) $(CFLAGS) -march=$(ARCH) -I src -o $@ $<
 
 %.elf: %.o
 		$(LD) -m $(EMU) -T $(PROGNAME).ld -o $@ $<
