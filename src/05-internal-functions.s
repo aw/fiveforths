@@ -22,28 +22,30 @@ djb2_hash_done:
     li t1, ~FLAGS_LEN   # load the inverted 8-bit flags+length mask into temporary
     and a0, t0, t1      # clear the top eight bits (used for flags and length)
     or a0, a0, t3       # add the length to the final hash value
-
     ret                 # a0 = final hash value
 
 # obtain a word (token) from the terminal input buffer
-# arguments: a0 = buffer start address (TIB), a1 = buffer current address (TOIN)
-# returns: a0 = token buffer start address, a1 = token size (length in bytes)
+# arguments: a0 = buffer start address
+# returns: a0 = token start address, a1 = token size (length in bytes)
 token:
     li t1, CHAR_SPACE           # initialize temporary to 'space' character
     mv t2, zero                 # initialize temporary counter to 0
 token_char:
-    blt a1, a0, token_done      # compare the address of TOIN with the address of TIB
-    lbu t0, 0(a1)               # read char from TOIN address
-    addi a1, a1, -1             # move TOIN pointer down
+    lbu t0, 0(a0)               # read char from buffer
+    addi a0, a0, 1              # move buffer pointer up
+    beqz t0, token_zero         # compare char with 0
     bgeu t1, t0, token_space    # compare char with space
     addi t2, t2, 1              # increment the token size for each non-space byte read
     j token_char                # loop to read the next character
 token_space:
     beqz t2, token_char         # loop to read next character if token size is 0
-    j token_done                # token reading is done
+    addi a0, a0, -1             # move buffer pointer down to ignore the space character
+    sub a0, a0, t2              # store the start address in W
+    j token_done
+token_zero:
+    addi a0, a0, -1             # move buffer pointer down to ignore the 0
 token_done:
     mv a1, t2                   # store the size in X
-
     ret
 
 # convert a string token to a 32-bit integer

@@ -41,7 +41,7 @@ interpreter_tib:
     sb a0, 0(a1)                                # store the character from W register in the TIB
     addi a1, a1, 1                              # increment TOIN value by 1
     li t0, CHAR_NEWLINE                         # load newline into temporary
-    beq a0, t0, process_token                   # process the token if it matches
+    beq a0, t0, replace_newline                 # process the token if it matches
 
     j interpreter                               # return to the interpreter if it's not a newline
 
@@ -72,28 +72,29 @@ process_carriage:
     j interpreter_tib       # jump to add the character to the TIB
 
 .balign CELL
-process_token:
+replace_newline:
     li a0, CHAR_SPACE       # convert newline to a space
     sb a0, -1(a1)           # replace previous newline character with space in W register
 
+process_token:
     # process the token
-    mv a0, t2               # load the TIB address in the W working register
+    li t3, TOIN             # load TOIN variable into unused temporary register
+    lw a0, 0(t3)            # load TOIN address value into temporary
     call token              # read the token
 
     # move TOIN
-    lw t0, 0(t3)            # load TOIN address value into temporary
-    add t0, t0, a1          # add the size of the token to TOIN
+    add t0, a0, a1          # add the size of the token to TOIN
     sw t0, 0(t3)            # move TOIN to process the next word in the TIB
 
     # bounds checks on token size
-    beqz a1, ok             # ok if token size is 0 # FIXME: what?
+    beqz a1, ok             # ok if token size is 0
     li t0, 32               # load max token size  (2^5 = 32) in temporary
     bgtu a1, t0, error      # error if token size is greater than 32
 
     call djb2_hash          # hash the token
 
-    li a1, LATEST           # load LATEST variable into temporary
-    lw a1, 0(a1)            # load LATEST value into temporary
+    li a1, LATEST           # load LATEST variable into X working register
+    lw a1, 0(a1)            # load LATEST value into X working register
     call lookup             # lookup the hash in the dictionary
 
     # check if the word is immediate
@@ -118,7 +119,7 @@ execute:
 execute_done:
     jr t0                   # jump to the address in temporary
 
-.loop: .word ok             # indirect jump to interpreter after executing a word
+.loop: .word process_token  # indirect jump to interpreter after executing a word
 
 .balign CELL
 compile:
