@@ -9,26 +9,23 @@
     jr a0               # jump to the address in W
 .endm
 
-# pop top of data stack to register and move DSP to TOS
+# pop top of data stack to register and move DSP
 .macro POP reg
-    mv \reg, s3         # copy TOS to register
-    lw s3, 0(sp)        # load DSP value to register
+    lw \reg, 0(sp)      # load DSP value to register
     addi sp, sp, CELL   # move the DSP up by 1 cell
 .endm
 
-# push register to top of stack and move TOS to DSP
+# push register to top of stack and move DSP
 .macro PUSH reg
     addi sp, sp, -CELL  # move the DSP down by 1 cell
-    sw s3, 0(sp)        # store the value in the TOS to the top of the DSP
-    mv s3, \reg         # copy register into TOS
+    sw \reg, 0(sp)      # store the value in the register to the top of the DSP
 .endm
 
 # push variable to top of stack
 .macro PUSHVAR var
     addi sp, sp, -CELL  # move the DSP down by 1 cell
-    sw s3, 0(sp)        # store the value in the TOS to the top of the DSP
     li t0, \var         # load variable into temporary
-    lw s3, 0(t0)        # load variable address value into TOS
+    sw t0, 0(sp)        # store the variable value to the top of the DSP
 .endm
 
 # push register to return stack

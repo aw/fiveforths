@@ -6,43 +6,52 @@
 
 # @ ( addr -- x )       Fetch memory at addr
 defcode "@", 0x0102b5e5, FETCH, NULL
-    lw s3, 0(s3)        # load address value from TOS (addr) into TOS (x)
+    lw t0, 0(sp)        # load the top of stack into temporary
+    lw t0, 0(t0)        # load the value from the temporary (addr)
+    sw t0, 0(sp)        # store the value back the top of stack (x)
     NEXT
 
 # ! ( x addr -- )       Store x at addr
 defcode "!", 0x0102b5c6, STORE, FETCH
     lw t0, 0(sp)        # load the DSP value (x) into temporary
-    sw t0, 0(s3)        # store temporary into address stored in TOS (addr)
-    lw s3, CELL(sp)     # load second value in DSP to TOS
+    lw t1, CELL(sp)     # load the DSP value (addr) into temporary
+    sw t0, 0(t1)        # store x into addr
     addi sp, sp, 2*CELL # move DSP up by 2 cells
     NEXT
 
 # sp@ ( -- addr )       Get current data stack pointer
 defcode "sp@", 0x0388aac8, DSPFETCH, STORE
-    PUSH sp             # store DSP in TOS
+    PUSH sp             # store DSP in the top of the stack
     NEXT
 
 # rp@ ( -- addr )       Get current return stack pointer
 defcode "rp@", 0x0388a687, RSPFETCH, DSPFETCH
-    PUSH s2             # store RSP in TOS
+    PUSH s2             # store RSP in the top of the stack
     NEXT
 
 # 0= ( x -- f )         -1 if top of stack is 0, 0 otherwise
 defcode "0=", 0x025970b2, ZEQU, RSPFETCH
-    seqz s3, s3         # store 1 in TOS if TOS is equal to 0, otherwise store 0
+    lw t0, 0(sp)        # load the DSP value (x) into temporary
+    snez t0, t0         # store 0 in temporary if it's equal to 0, otherwise store 1
+    addi t0, t0, -1     # store -1 in temporary if it's 0, otherwise store 0
+    sw t0, 0(sp)        # store value back into the top of the stack
     NEXT
 
 # + ( x1 x2 -- n )      Add the two values at the top of the stack
 defcode "+", 0x0102b5d0, ADD, ZEQU
-    POP t0              # pop value into temporary
-    add s3, s3, t0      # add values and store in TOS
+    POP t0              # pop DSP value (x1) into temporary
+    lw t1, 0(sp)        # load DSP value (x2) into temporary
+    add t0, t0, t1      # add the two values
+    sw t0, 0(sp)        # store the value into the top of the stack
     NEXT
 
 # nand ( x1 x2 -- n )   Bitwise NAND the two values at the top of the stack
 defcode "nand", 0x049b0c66, NAND, ADD
-    POP t0              # pop value into temporary
-    and s3, s3, t0      # store bitwise AND of temporary and TOS into TOS
-    not s3, s3          # store bitwise NOT of TOS into TOS
+    POP t0              # pop DSP value (x1) into temporary
+    lw t1, 0(sp)        # load DSP value (x2) into temporary
+    and t0, t0, t1      # perform bitwise AND of the two values
+    not t0, t0          # perform bitwise NOT of the value
+    sw t0, 0(sp)        # store the value into the top of the stack
     NEXT
 
 # exit ( r:addr -- )    Resume execution at address at the top of the return stack
@@ -57,12 +66,12 @@ defcode "exit", 0x04967e3f, EXIT, NAND
 # key ( -- x )          Read 8-bit character from uart input
 defcode "key", 0x0388878e, KEY, EXIT
     call uart_get       # read character from uart into W
-    PUSH a0             # store character into TOS
+    PUSH a0             # store character into top of data stack
     NEXT
 
 # emit ( x -- )         Write 8-bit character to uart output
 defcode "emit", 0x04964f74, EMIT, KEY
-    POP a0              # copy TOS into W
+    POP a0              # copy top of data stack into W
     call uart_put       # send character from W to uart
     NEXT
 
@@ -71,23 +80,23 @@ defcode "emit", 0x04964f74, EMIT, KEY
 ##
 
 defcode "tib", 0x0388ae44, TIB, EMIT
-    PUSHVAR TIB         # store TIB variable value in TOS
+    PUSHVAR TIB         # store TIB variable value in top of data stack
     NEXT
 
 defcode "state", 0x05614a06, STATE, TIB
-    PUSHVAR STATE       # store STATE variable value in TOS
+    PUSHVAR STATE       # store STATE variable value in top of data stack
     NEXT
 
 defcode ">in", 0x0387c89a, TOIN, STATE
-    PUSHVAR TOIN        # store TOIN variable value in TOS
+    PUSHVAR TOIN        # store TOIN variable value in top of data stack
     NEXT
 
 defcode "here", 0x0497d3a9, HERE, TOIN
-    PUSHVAR HERE        # store HERE variable value in TOS
+    PUSHVAR HERE        # store HERE variable value in top of data stack
     NEXT
 
 defcode "latest", 0x06e8ca72, LATEST, HERE
-    PUSHVAR LATEST      # store LATEST variable value in TOS
+    PUSHVAR LATEST      # store LATEST variable value in top of data stack
     NEXT
 
 ##

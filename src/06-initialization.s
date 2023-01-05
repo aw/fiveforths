@@ -27,7 +27,6 @@ reset:
     la sp, __stacktop           # initialize DSP register
     la s1, interpreter_start    # initialize IP register
     li s2, RSP_TOP              # initialize RSP register
-    mv s3, zero                 # initialize TOS register
 
     # initialize function parameters
     mv a0, zero         # initialize W register

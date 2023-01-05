@@ -18,7 +18,6 @@ Copyright (c) 2021 Alexander Williams, On-Prem <license@on-premises.com>
 # s0 = FP  = frame pointer (unused for now)
 # s1 = IP  = instruction pointer
 # s2 = RSP = return stack pointer
-# s3 = TOS = top of stack pointer (data stack)
 
 .include "01-variables-constants.s"
 .include "02-macros.s"
