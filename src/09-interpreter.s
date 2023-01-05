@@ -91,6 +91,14 @@ process_token:
     li t0, 32               # load max token size  (2^5 = 32) in temporary
     bgtu a1, t0, error      # error if token size is greater than 32
 
+    # check if the token is a number
+    mv t5, a0               # save a0 temporarily
+    mv t6, a1               # save a1 temporarily
+    call number             # try to convert the token to an integer
+    bnez a1, push_number    # push the token to the stack if it's a number
+    mv a0, t5               # restore a0
+    mv a1, t6               # restore a1
+
     call djb2_hash          # hash the token
 
     li a1, LATEST           # load LATEST variable into X working register
@@ -110,6 +118,7 @@ process_token:
     or t0, t0, t1           # logical OR the immediate flag and state
     addi t0, t0, -1         # decrement the result by 1
     beqz t0, compile        # compile the word if the result is 0
+    j execute               # explicitly jump to the execute label
 
 .balign CELL
 execute:
@@ -125,3 +134,7 @@ execute_done:
 compile:
 compile_done:
     j ok
+
+push_number:
+    PUSH a0                 # push the W working register to the top of the data stack
+    j process_token         # jump back to process the next token
