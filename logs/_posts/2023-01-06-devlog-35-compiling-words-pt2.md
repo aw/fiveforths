@@ -109,4 +109,4 @@ And there we have it, my first fully functional **Forth** (and programming langu
 
 ### Closing thoughts
 
-This is super exciting! I can actually say that I have the first fully functional extremely minimal RISC-V Forth written for the 32-bit Longan Nano (yes, I know about _Mecrisp Quintus_). There are still a few features to add, but I'll focus on optimizations first, code cleanup and comments, and maybe getting some examples and a `README` up for others to use this.
+This is super exciting! There are still a few minor bugs to fix and features to add, but I'll focus on bugs/optimizations first, code cleanup and comments, and maybe getting some examples and a `README` up for others to use this.
