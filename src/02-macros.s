@@ -17,21 +17,21 @@
 
 # push register to top of stack and move DSP
 .macro PUSH reg
+    sw \reg, -CELL(sp)  # store the value in the register to the top of the DSP
     addi sp, sp, -CELL  # move the DSP down by 1 cell
-    sw \reg, 0(sp)      # store the value in the register to the top of the DSP
 .endm
 
 # push variable to top of stack
 .macro PUSHVAR var
-    addi sp, sp, -CELL  # move the DSP down by 1 cell
     li t0, \var         # load variable into temporary
-    sw t0, 0(sp)        # store the variable value to the top of the DSP
+    sw t0, -CELL(sp)    # store the variable value to the top of the DSP
+    addi sp, sp, -CELL  # move the DSP down by 1 cell
 .endm
 
 # push register to return stack
 .macro PUSHRSP reg
+    sw \reg, -CELL(s2)  # store value from register into RSP
     addi s2, s2, -CELL  # decrement RSP by 1 cell
-    sw \reg, 0(s2)      # store value from register into RSP
 .endm
 
 # pop top of return stack to register

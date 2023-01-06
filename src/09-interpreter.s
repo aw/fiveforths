@@ -4,8 +4,6 @@
 
 .balign CELL
 
-.section .rodata
-
 # here's where the program starts (the interpreter)
 interpreter_start:
     li t2, TIB                                  # load TIB memory address
@@ -132,8 +130,15 @@ execute_done:
 
 .balign CELL
 compile:
+    addi t0, a1, 2*CELL     # increment the address of the found word by 8 to get the codeword address
+    li t1, HERE             # load HERE variable into temporary
+    lw t2, 0(t1)            # load HERE value into temporary
+    sw t0, 0(t2)            # write the address of the codeword to the current definition
+
+    addi t0, t2, CELL       # increment HERE by 4
+    sw t0, 0(t1)            # store new HERE address
 compile_done:
-    j ok
+    j process_token
 
 push_number:
     PUSH a0                 # push the W working register to the top of the data stack

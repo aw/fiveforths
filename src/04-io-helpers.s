@@ -21,3 +21,17 @@ uart_put_loop:
     sb a0, UART_TX_DATA(t0)     # send character to data register
 
     ret
+
+# print a string to the uart
+# arguments: a1 = address of the message to be printed, a2 = address+length of the message
+uart_print:
+    mv s3, ra                   # save the return address
+uart_print_loop:
+    beq a1, a2, uart_print_done # done if we've printed all characters
+    lbu a0, 0(a1)               # load 1 character from the message string
+    call uart_put
+    addi a1, a1, 1              # increment the address by 1
+    j uart_print_loop           # loop to print the next message
+uart_print_done:
+    mv ra, s3                   # restore the return address
+    ret

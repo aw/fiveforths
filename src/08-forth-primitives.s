@@ -4,8 +4,12 @@
 
 .equ word_NULL, 0
 
+# reboot ( -- )         # Reboot the entire system and initialize memory
+defcode "reboot", 0x06266b70, REBOOT, NULL
+    j reboot            # jump to reboot
+
 # @ ( addr -- x )       Fetch memory at addr
-defcode "@", 0x0102b5e5, FETCH, NULL
+defcode "@", 0x0102b5e5, FETCH, REBOOT
     lw t0, 0(sp)        # load the top of stack into temporary
     lw t0, 0(t0)        # load the value from the temporary (addr)
     sw t0, 0(sp)        # store the value back the top of stack (x)
@@ -105,18 +109,19 @@ defcode "latest", 0x06e8ca72, LATEST, HERE
 
 # : ( -- )              # Start the definition of a new word
 defcode ":", 0x0102b5df, COLON, LATEST
-    li a0, TIB          # load TIB into W
-    li t3, TOIN         # load the TOIN variable into unused temporary register
-    lw a1, 0(t3)        # load TOIN address value into X working register
+    li t3, TOIN         # load TOIN variable into unused temporary register
+    lw a0, 0(t3)        # load TOIN address value into temporary
     call token          # read the token
 
+    # move TOIN
+    add t0, a0, a1      # add the size of the token to TOIN
+    sw t0, 0(t3)        # move TOIN to process the next word in the TIB
+
     # bounds checks on token size
-    beqz a1, error      # error if token size is 0
+    beqz a1, ok         # ok if token size is 0
     li t0, 32           # load max token size  (2^5 = 32) in temporary
     bgtu a1, t0, error  # error if token size is greater than 32
 
-    # store the word then hash it
-    sw a0, 0(t3)        # store new address into TOIN variable
     call djb2_hash      # hash the token
 
     # set the HIDDEN flag in the 2nd bit from the MSB (bit 30) of the hash
@@ -174,8 +179,8 @@ defcode ";", 0x8102b5e0, SEMI, COLON
     # update HERE variable
     li t0, HERE         # copy the memory address of HERE into temporary
     lw t2, 0(t0)        # load the HERE value into temporary
-    la t1, code_EXIT    # load the codeword address into temporary # FIXME: why not body_EXIT?
-    sw t1, 0(t0)        # store the codeword address into HERE
+    la t1, code_EXIT    # load the codeword address into temporary
+    sw t1, 0(t2)        # store the codeword address into HERE
 
     # bounds check on the exit memory location
     addi t2, t2, CELL   # prepare to move the HERE pointer by 1 CELL
