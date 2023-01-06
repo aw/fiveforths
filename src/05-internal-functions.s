@@ -91,7 +91,9 @@ number_store:
 # arguments: a0 = hash of the word, a1 = address of the LATEST word
 # returns: a0 = hash of the word, a1 = address of the word if found
 lookup:
-    beqz a1, error              # error if the address is 0 (end of the dictionary)
+    mv t2, a1                   # copy the address of LATEST
+lookup_loop:
+    beqz a1, lookup_error       # error if the address is 0 (end of the dictionary)
     lw t0, 4(a1)                # load the hash of the word from the X working register
 
     # check if the word is hidden
@@ -105,6 +107,22 @@ lookup:
     beq t0, a0, lookup_done    # done if the hashes match
 lookup_next:
     lw a1, 0(a1)               # follow link to next word in dict
-    j lookup
+    j lookup_loop
+lookup_error:
+    # check the STATE
+    li t0, STATE                # load the address of the STATE variable into temporary
+    lw t0, 0(t0)                # load the current state into a temporary
+    beqz t0, error              # if in execute mode (STATE = 0), jump to error handler to reset
+
+    # update HERE since we're in compile mode
+    li t0, HERE                 # load HERE variable into temporary
+    sw t2, 0(t0)                # store the address of LATEST back into HERE
+
+    # update LATEST since we're in compile mode
+    li t0, LATEST               # load LATEST variable into temporary
+    lw t1, 0(t2)                # load LATEST variable value into temporary
+    sw t1, 0(t0)                # store LATEST word into LATEST variable
+
+    j error                     # jump to error handler
 lookup_done:
     ret
