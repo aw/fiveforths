@@ -1,4 +1,5 @@
 # January 06
+
 1. [Log 34](#log-34)
 2. [Printing strings](#printing-strings)
 3. [Rebooting the MCU](#rebooting-the-mcu)

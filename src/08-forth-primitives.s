@@ -131,7 +131,7 @@ defcode ":", 0x0102b5df, COLON, LATEST
     # copy the memory address of some variables to temporary registers
     li t0, HERE
     li t1, LATEST
-    la a2, .addr        # load the codeword address into Y working register
+    la a2, docol        # load the codeword address into Y working register
 
     # load and update memory addresses from variables
     lw t2, 0(t0)        # load the new start address of the current word into temporary (HERE)
@@ -161,10 +161,8 @@ defcode ":", 0x0102b5df, COLON, LATEST
 
 docol:
     PUSHRSP s1          # push IP onto the return stack
-    addi s1, a2, CELL   # skip code field in Y by adding a CELL, store it in IP
+    addi s1, a0, CELL   # skip code field in W by adding 1 CELL, store it in IP
     NEXT
-
-.addr: .word docol      # indirect jump to docol from a colon definition
 
 # ; ( -- )              # End the definition of a new word
 defcode ";", 0x8102b5e0, SEMI, COLON

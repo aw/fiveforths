@@ -47,15 +47,12 @@
     .globl word_\label
   word_\label :
     .4byte word_\link   # 32-bit pointer to codeword of link
+    .globl hash_\label
+  hash_\label :
     .4byte \hash        # 32-bit hash of this word
+    .4byte code_\label  # 32-bit pointer to codeword of label
     .globl code_\label
-  code_\label :
-    .4byte body_\label  # 32-bit pointer to codeword of label
-    .balign CELL        # align to CELL bytes boundary
-    .text
-    .balign CELL        # align to CELL bytes boundary
-    .globl body_\label
-  body_\label :         # assembly code below
+  code_\label :         # assembly code below
 .endm
 
 # check a character
