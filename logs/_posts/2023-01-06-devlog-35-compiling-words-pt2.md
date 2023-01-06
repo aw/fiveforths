@@ -105,7 +105,7 @@ Now we have confirmation that we can _execute_ AND _compile_ words!!
 
 ### Done
 
-And there we have it, my first fully functional **Forth** (and programming language written from scratch). Well, kinda.. it's not currently possible to enter numbers in a definition (well you can but they won't be saved to the dictionary). I'll need to implement `LIT` for handling literals.
+And there we have it, my first fully functional **Forth** (and programming language written from scratch).
 
 ### Closing thoughts
 
