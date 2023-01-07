@@ -126,7 +126,8 @@ execute:
 execute_done:
     jr t0                   # jump to the address in temporary
 
-.loop: .word process_token  # indirect jump to interpreter after executing a word
+.loop: .word .dloop         # double indirect jump to interpreter
+.dloop: .word process_token # indirect jump to interpreter after executing a word
 
 .balign CELL
 compile:

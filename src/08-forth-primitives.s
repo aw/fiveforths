@@ -75,6 +75,8 @@ defcode "key", 0x0388878e, KEY, EXIT
 
 # emit ( x -- )         Write 8-bit character to uart output
 defcode "emit", 0x04964f74, EMIT, KEY
+    li a0, CHAR_SPACE   # copy space into W
+    call uart_put       # send character from W to uart
     POP a0              # copy top of data stack into W
     call uart_put       # send character from W to uart
     NEXT
@@ -131,7 +133,7 @@ defcode ":", 0x0102b5df, COLON, LATEST
     # copy the memory address of some variables to temporary registers
     li t0, HERE
     li t1, LATEST
-    la a2, docol        # load the codeword address into Y working register
+    la a2, .addr        # load the codeword address into Y working register
 
     # load and update memory addresses from variables
     lw t2, 0(t0)        # load the new start address of the current word into temporary (HERE)
@@ -163,6 +165,9 @@ docol:
     PUSHRSP s1          # push IP onto the return stack
     addi s1, a0, CELL   # skip code field in W by adding 1 CELL, store it in IP
     NEXT
+
+.addr:
+    j docol             # indirect jump to interpreter after executing a word
 
 # ; ( -- )              # End the definition of a new word
 defcode ";", 0x8102b5e0, SEMI, COLON

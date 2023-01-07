@@ -2,11 +2,12 @@
 # Macros
 ##
 
-# jump to the next subroutine, appended to each primitive
+# jump to the next subroutine (ITC), appended to each primitive
 .macro NEXT
     lw a0, 0(s1)        # load memory address from IP into W
     addi s1, s1, CELL   # increment IP by CELL size
-    jr a0               # jump to the address in W
+    lw t0, 0(a0)        # load address from W into temporary
+    jr t0               # jump to the address in temporary
 .endm
 
 # pop top of data stack to register and move DSP
@@ -50,9 +51,11 @@
     .globl hash_\label
   hash_\label :
     .4byte \hash        # 32-bit hash of this word
-    .4byte code_\label  # 32-bit pointer to codeword of label
     .globl code_\label
-  code_\label :         # assembly code below
+  code_\label :
+    .4byte body_\label  # 32-bit pointer to codeword of label
+    .globl body_\label
+  body_\label :         # assembly code below
 .endm
 
 # check a character

@@ -11,3 +11,4 @@ set backtrace limit 32
 set pagination off
 monitor reset halt
 #load
+break interrupt_handler
