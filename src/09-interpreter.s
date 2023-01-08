@@ -93,7 +93,7 @@ process_token:
     mv t5, a0               # save a0 temporarily
     mv t6, a1               # save a1 temporarily
     call number             # try to convert the token to an integer
-    bnez a1, push_number    # push the token to the stack if it's a number
+    bnez a1, push_number    # push the token to the stack or memory if it's a number
     mv a0, t5               # restore a0
     mv a1, t6               # restore a1
 
@@ -142,5 +142,19 @@ compile_done:
     j process_token
 
 push_number:
+    # push to stack if STATE = 0 (execute)
+    li t1, STATE            # load the address of the STATE variable into temporary
+    lw t1, 0(t1)            # load the current state into a temporary
+    beqz t1, push_stack     # if in execute mode, push the number to the stack
+    # push to memory if STATE = 1 (compile)
+    la t0, code_LIT         # load the codeword address of LIT into temporary
+    li t1, HERE             # load HERE variable into temporary
+    lw t2, 0(t1)            # load HERE value into temporary
+    sw t0, 0(t2)            # write the codeword address of LIT to memory (HERE)
+    sw a0, 4(t2)            # write the number from W to the next memory cell (HERE+4)
+    addi t0, t2, 2*CELL     # increment HERE by 2 CELLs
+    sw t0, 0(t1)            # store new HERE address
+    j process_token         # jump back to process the next token
+push_stack:
     PUSH a0                 # push the W working register to the top of the data stack
     j process_token         # jump back to process the next token

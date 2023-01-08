@@ -58,8 +58,15 @@ defcode "nand", 0x049b0c66, NAND, ADD
     sw t0, 0(sp)        # store the value into the top of the stack
     NEXT
 
+# lit ( -- n )          Get the next word from IP and push it to the stack, increment IP
+defcode "lit", 0x03888c4e, LIT, NAND
+    lw t0, 0(s1)        # load the memory address from IP into temporary
+    PUSH t0             # push the literal to the top of the stack
+    addi s1, s1, CELL   # increment IP by 1 CELL
+    NEXT
+
 # exit ( r:addr -- )    Resume execution at address at the top of the return stack
-defcode "exit", 0x04967e3f, EXIT, NAND
+defcode "exit", 0x04967e3f, EXIT, LIT
     POPRSP s1           # pop RSP into IP
     NEXT
 
@@ -75,8 +82,6 @@ defcode "key", 0x0388878e, KEY, EXIT
 
 # emit ( x -- )         Write 8-bit character to uart output
 defcode "emit", 0x04964f74, EMIT, KEY
-    li a0, CHAR_SPACE   # copy space into W
-    call uart_put       # send character from W to uart
     POP a0              # copy top of data stack into W
     call uart_put       # send character from W to uart
     NEXT
