@@ -61,7 +61,6 @@ process_backspace:
     # erase a character from the terminal input buffer (TIB) if there is one
     beq a1, t2, interpreter # return to interpreter if TOIN == TIB
     addi a1, a1, -1         # decrement TOIN by 1 to erase a character
-    sw a1, 0(t3)            # store new TOIN value in memory
 
     j interpreter           # return to the interpreter after erasing the character
 
