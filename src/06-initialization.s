@@ -6,7 +6,7 @@
 .global _start
 
 # board boot initializations
-_start:
+boot:
     call interrupt_init # RISC-V interrupt CSR initialization
     call uart_init      # board specific UART initialization
     call gpio_init      # board specific GPIO initialization
