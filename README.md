@@ -30,12 +30,14 @@ Development progress has been logged regularly in the [devlogs](https://aw.githu
 
 # Getting started
 
+It is possible to download a firmware binary or build the firmware manually.
+
 ## Download it
 
 Download one of the firmware binaries from the [releases page](https://github.com/aw/fiveforths/releases).
 
-* [fiveforths-longan-nano-lite.bin](https://github.com/aw/fiveforths/releases/download/v0.1/fiveforths-longan-nano-lite.bin) (64K Flash, 20K RAM)
-* [fiveforths-longan-nano.bin](https://github.com/aw/fiveforths/releases/download/v0.1/fiveforths-longan-nano.bin) (128K Flash, 32K RAM)
+* [fiveforths-longan-nano-lite.bin](https://github.com/aw/fiveforths/releases/download/v0.2/fiveforths-longan-nano-lite.bin) (64K Flash, 20K RAM)
+* [fiveforths-longan-nano.bin](https://github.com/aw/fiveforths/releases/download/v0.2/fiveforths-longan-nano.bin) (128K Flash, 32K RAM)
 
 ## Build it
 
@@ -65,7 +67,7 @@ $ make
 /usr/bin/riscv64-unknown-elf-objdump -D -S fiveforths.elf > fiveforths.dump
 ```
 
-The firmware file is called `fiveforths.bin` and is **under 2 KBytes** as of _January 08, 2023_.
+The firmware file is called `fiveforths.bin` and is **under 2 KBytes** as of _release v0.1_ since _January 08, 2023_.
 
 # Flashing the firmware
 
@@ -121,7 +123,7 @@ The source files are:
 # TODO
 
 - [ ] Finish writing this README
-- [ ] Fix remaining bugs (carriage return issue)
+- [x] Fix remaining bugs (carriage return issue)
 - [ ] Implement bounds checks for stacks and dictionary
 - [ ] Code cleanup and optimizations
 - [ ] Add example Forth code to turn it into a "real" Forth (ex: `[`, `]`, `branch`, etc)
@@ -132,7 +134,14 @@ Please create a pull-request or [open an issue](https://github.com/aw/picolisp-k
 
 # Changelog
 
-* 2023-01-09 - First release
+## 0.2 (2023-01-10)
+
+  * Fix issue #9 - Handling of carriage return
+  * Fix issue #11 - Ignore non-printable characters
+  * Re-organize code to support different boards and MCUs
+  * Add GitHub action to automatically build and publish the firmware binaries
+
+## 0.1 2023-01-09 - First release
 
 # Other Forths
 

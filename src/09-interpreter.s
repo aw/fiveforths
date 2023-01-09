@@ -14,6 +14,13 @@ interpreter:
     call uart_get                               # read a character from UART
     li t4, CHAR_NEWLINE                         # load newline into temporary
     beq a0, t4, skip_send                       # don't send the character if it's a newline
+
+    # ignore specific characters
+    mv t4, zero                                 # load 0x00 zero into temporary
+    beq a0, t4, interpreter                     # ignore the character if it matches
+    li t4, CHAR_CARRIAGE                        # load 0x0D carriage return into temporary
+    beq a0, t4, interpreter                     # ignore the character if it matches
+
     call uart_put                               # send the character to UART
 
 skip_send:
@@ -26,11 +33,6 @@ skip_send:
 
     li t0, CHAR_BACKSPACE                       # load backspace into temporary
     beq a0, t0, process_backspace               # process the backspace if it matches
-
-    li t0, CHAR_CARRIAGE                        # load carriage return into temporary
-    beq a0, t0, process_carriage                # process the carriage return if it matches
-
-    # TODO: check if character is printable
 
 interpreter_tib:
     # add the character to the TIB
@@ -63,10 +65,6 @@ process_backspace:
     addi a1, a1, -1         # decrement TOIN by 1 to erase a character
 
     j interpreter           # return to the interpreter after erasing the character
-
-process_carriage:
-    li a0, CHAR_NEWLINE     # convert a carriage return to a newline
-    j interpreter_tib       # jump to add the character to the TIB
 
 .balign CELL
 replace_newline:

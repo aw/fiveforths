@@ -19,13 +19,16 @@ Copyright (c) 2021 Alexander Williams, On-Prem <license@on-premises.com>
 # s1 = IP  = instruction pointer
 # s2 = RSP = return stack pointer
 
+# include board-specific functions and constants from src/boards/<board>/
+.include "board.s"
+
+# include MCU-specific functions and constants from src/mcus/<MCU>/
+.include "mcu.s"
+
+# include source files from src/
 .include "01-variables-constants.s"
 .include "02-macros.s"
 .include "03-interrupts.s"
-
-# include board-specific functions
-.include "gd32vf103.s"
-
 .include "04-io-helpers.s"
 .include "05-internal-functions.s"
 .include "06-initialization.s"

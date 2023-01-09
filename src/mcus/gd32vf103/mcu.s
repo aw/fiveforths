@@ -2,6 +2,11 @@
 # GD32VF103
 ##
 
+.equ CELL, 4                            # 32-bits cell size
+.equ RAM_BASE, 0x20000000               # base address of RAM
+.equ STACK_SIZE, 256                    # 256 Bytes
+
+# UART
 .equ USART0_BASE_ADDRESS, 0x40013800
 .equ UART_RX_STATUS, 0x00       # USART status register offset (USART_STAT)
 .equ UART_RX_DATA, 0x04         # data register offset (USART_DATA)

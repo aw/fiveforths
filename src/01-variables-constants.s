@@ -8,12 +8,6 @@
 # Memory map
 ##
 
-# adjust these values for specific targets
-.equ CELL, 4                            # 32-bits cell size
-.equ RAM_BASE, 0x20000000               # base address of RAM
-.equ RAM_SIZE, 1024 * 20                # 20 KiB
-.equ STACK_SIZE, 256                    # 256 Bytes
-
 # DSP, RSP, TIB stacks grow downward from the top of memory
 .equ DSP_TOP, RAM_BASE + RAM_SIZE       # address of top of data stack
 .equ RSP_TOP, DSP_TOP - STACK_SIZE      # address of top of return stack
@@ -36,7 +30,7 @@
 ##
 
 .equ CHAR_NEWLINE, '\n'         # newline character 0x0A
-.equ CHAR_CARRIAGE, '\r'        # carriage return character 0x13
+.equ CHAR_CARRIAGE, '\r'        # carriage return character 0x0D
 .equ CHAR_SPACE, ' '            # space character 0x20
 .equ CHAR_BACKSPACE, '\b'       # backspace character 0x08
 .equ CHAR_COMMENT, '\\'         # backslash character 0x5C

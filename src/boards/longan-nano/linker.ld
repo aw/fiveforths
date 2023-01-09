@@ -1,7 +1,8 @@
+/* GD32VF103CB */
 MEMORY
 {
-    FLASH (rx)      : ORIGIN = 0x08000000, LENGTH = 64k
-    RAM (xrw)       : ORIGIN = 0x20000000, LENGTH = 20k
+    FLASH (rx)      : ORIGIN = 0x08000000, LENGTH = 128k
+    RAM (xrw)       : ORIGIN = 0x20000000, LENGTH = 32k
 }
 
 /* The entry point is the reset handler */
