@@ -1,4 +1,4 @@
-# 32-bit RISC-V Forth implementation for microcontrollers
+# 32-bit RISC-V Forth for microcontrollers
 
 [![GitHub release](https://img.shields.io/github/release/aw/fiveforths.svg)](https://github.com/aw/fiveforths)
 
@@ -29,6 +29,15 @@ Development progress has been logged regularly in the [devlogs](https://aw.githu
 * Manually built `openocd` and `gdb` installed in `/opt/riscv/` for debugging only
 
 # Getting started
+
+## Download it
+
+Download one of the firmware binaries from the [releases page](https://github.com/aw/fiveforths/releases).
+
+* [fiveforths-longan-nano-lite.bin](https://github.com/aw/fiveforths/releases/download/v0.1/fiveforths-longan-nano-lite.bin) (64K Flash, 20K RAM)
+* [fiveforths-longan-nano.bin](https://github.com/aw/fiveforths/releases/download/v0.1/fiveforths-longan-nano.bin) (128K Flash, 32K RAM)
+
+## Build it
 
 The first step is to prepare the environment for building the firmware:
 
@@ -103,7 +112,7 @@ The device may be different from `/dev/ttyUSB0`, but I'm sure you can figure it 
 
 The source files are:
 
-* [fiveforths.s](fiveforths.s): lists the register assignment and loads the actual source files for `src/`.
+* [fiveforths.s](fiveforths.s): lists the register assignment and loads the actual source files from `src/`.
 * [src/01-variables-constants.s](src/01-variables-constants.s): defines some constants which are stored in Flash memory, but which may point to memory addresses to be used as variables.
 * [src/02-macros.s](src/02-macros.s): defines macros to avoid repeating code throughout the source files.
 
@@ -112,7 +121,7 @@ The source files are:
 # TODO
 
 - [ ] Finish writing this README
-- [ ] Fix remaining bugs (backspace and carriage return issues)
+- [ ] Fix remaining bugs (carriage return issue)
 - [ ] Implement bounds checks for stacks and dictionary
 - [ ] Code cleanup and optimizations
 - [ ] Add example Forth code to turn it into a "real" Forth (ex: `[`, `]`, `branch`, etc)
@@ -123,7 +132,7 @@ Please create a pull-request or [open an issue](https://github.com/aw/picolisp-k
 
 # Changelog
 
-* 2023-01-08 - First release
+* 2023-01-09 - First release
 
 # Other Forths
 
