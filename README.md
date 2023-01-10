@@ -1,4 +1,4 @@
-# 32-bit RISC-V Forth for microcontrollers
+# FiveForths: 32-bit RISC-V Forth for microcontrollers
 
 [![GitHub release](https://img.shields.io/github/release/aw/fiveforths.svg)](https://github.com/aw/fiveforths)
 
@@ -139,6 +139,7 @@ Please create a pull-request or [open an issue](https://github.com/aw/picolisp-k
   * Fix issue #9 - Handling of carriage return
   * Fix issue #11 - Ignore non-printable characters
   * Re-organize code to support different boards and MCUs
+  * Add boot message when the device is reset
   * Add GitHub action to automatically build and publish the firmware binaries
 
 ## 0.1 2023-01-09 - First release
@@ -160,4 +161,4 @@ This document would be incomplete without listing other Forths which inspired me
 
 [MIT License](LICENSE)
 
-Copyright (c) 2021~ Alexander Williams, On-Prem <license@on-premises.com>
+Copyright (c) 2021~ [Alexander Williams](https://a1w.ca)

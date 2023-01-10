@@ -2,11 +2,6 @@
 # Interrupts
 ##
 
-.text
-.global _start
-_start:
-    j boot
-
 .balign CELL
 .global interrupt_handler
 .type interrupt_handler, @function

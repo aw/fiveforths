@@ -3,6 +3,8 @@
 # Makefile for building and testing
 
 PROGNAME = fiveforths
+FIRMWARE ?= $(PROGNAME).bin
+DEVICE ?= /dev/ttyUSB0
 CFLAGS := -g
 CROSS ?= /usr/bin/riscv64-unknown-elf-
 AS := $(CROSS)as
@@ -47,6 +49,9 @@ openocd:
 
 debug:
 		/opt/riscv/bin/riscv64-unknown-elf-gdb -command=debug.gdb -q fiveforths.elf
+
+flash:
+		stm32loader -p $(DEVICE) -ewv $(FIRMWARE)
 
 longan-nano:
 		$(MAKE) build BOARD=longan-nano

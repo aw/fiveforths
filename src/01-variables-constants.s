@@ -2,7 +2,7 @@
 # Variables and constants
 ##
 
-.equ FORTH_VERSION, 1
+.equ FORTH_VERSION, 2
 
 ##
 # Memory map

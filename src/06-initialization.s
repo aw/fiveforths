@@ -2,9 +2,6 @@
 # Initialization
 ##
 
-.text
-.global _start
-
 # board boot initializations
 boot:
     call interrupt_init # RISC-V interrupt CSR initialization
@@ -20,6 +17,12 @@ boot:
     la t0, word_SEMI    # load address of the last word in Flash memory (;) for now
     li t1, LATEST       # load LATEST variable
     sw t0, 0(t1)        # initialize LATEST variable to contain word_SEMI memory address
+
+    # display boot message
+    la a1, msg_boot     # load string message
+    addi a2, a1, 74     # load string length
+    call uart_print     # call uart print function
+    j reset
 
 # reset the Forth stack pointers, registers, variables, and state
 reset:
@@ -53,3 +56,5 @@ tib_zerofill:
     j tib_zerofill      # repeat
 tib_done:
     j interpreter_start # jump to the main interpreter REPL
+
+msg_boot: .ascii "FiveForths v0.2, Copyright (c) 2021~ Alexander Williams, https://a1w.ca \n\n"
