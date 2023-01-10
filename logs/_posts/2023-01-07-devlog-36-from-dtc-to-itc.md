@@ -82,7 +82,7 @@ emit<Enter> A   ok
 
 The `lookup` function was not cleaning up after itself when an error was found. This was not an issue when _executing_ words, only when _compiling_ because it would essentially leave a word half-compiled in memory.
 
-I think the first change is to makea copy of `LATEST` once we enter the function. This is the value we want to restore if there's an error, but we only want to do it once:
+I think the first change is to make a copy of `LATEST` once we enter the function. This is the value we want to restore if there's an error, but we only want to do it once:
 
 ```
  lookup:
