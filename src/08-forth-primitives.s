@@ -90,24 +90,29 @@ defcode "emit", 0x04964f74, EMIT, KEY
 # Forth variables
 ##
 
+# tib ( -- addr )       Store TIB variable address in top of data stack
 defcode "tib", 0x0388ae44, TIB, EMIT
-    PUSHVAR TIB         # store TIB variable value in top of data stack
+    PUSHVAR TIB
     NEXT
 
+# state ( -- addr )     Store STATE variable address in top of data stack
 defcode "state", 0x05614a06, STATE, TIB
-    PUSHVAR STATE       # store STATE variable value in top of data stack
+    PUSHVAR STATE
     NEXT
 
+# >in ( -- addr )       Store TOIN variable address in top of data stack
 defcode ">in", 0x0387c89a, TOIN, STATE
-    PUSHVAR TOIN        # store TOIN variable value in top of data stack
+    PUSHVAR TOIN
     NEXT
 
+# here ( -- addr )      Store HERE variable address in top of data stack
 defcode "here", 0x0497d3a9, HERE, TOIN
-    PUSHVAR HERE        # store HERE variable value in top of data stack
+    PUSHVAR HERE
     NEXT
 
+# latest ( -- addr )     Store LATEST variable address in top of data stack
 defcode "latest", 0x06e8ca72, LATEST, HERE
-    PUSHVAR LATEST      # store LATEST variable value in top of data stack
+    PUSHVAR LATEST
     NEXT
 
 ##

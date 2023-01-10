@@ -53,6 +53,9 @@ debug:
 flash:
 		stm32loader -p $(DEVICE) -ewv $(FIRMWARE)
 
+djb2:
+		gcc -o djb2 djb2.c
+
 longan-nano:
 		$(MAKE) build BOARD=longan-nano
 
