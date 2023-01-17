@@ -67,3 +67,25 @@
     li t0, \char        # load character into temporary
     beq a0, t0, \dest   # jump to the destination if the char matches
 .endm
+
+# print a message
+.macro print_error name, size, jump
+    .balign CELL
+  err_\name :
+    la a1, msg_\name    # load string message
+    addi a2, a1, \size  # load string length
+    call uart_print     # call uart print function
+    j \jump             # jump when print returns
+.endm
+
+# restore HERE and LATEST variables
+.macro restorevars reg
+    # update HERE
+    li t0, HERE         # load HERE variable into temporary
+    sw \reg, 0(t0)      # store the address of LATEST back into HERE
+
+    # update LATEST
+    li t0, LATEST       # load LATEST variable into temporary
+    lw t1, 0(\reg)      # load LATEST variable value into temporary
+    sw t1, 0(t0)        # store LATEST word into LATEST variable
+.endm

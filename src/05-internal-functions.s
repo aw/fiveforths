@@ -97,32 +97,24 @@ lookup_loop:
     lw t0, 4(a1)                # load the hash of the word from the X working register
 
     # check if the word is hidden
-    li t1, F_HIDDEN            # load the HIDDEN flag into temporary
-    and t1, t0, t1             # read the hidden flag bit
-    bnez t1, lookup_next       # skip the word if it's hidden
+    li t1, F_HIDDEN             # load the HIDDEN flag into temporary
+    and t1, t0, t1              # read the hidden flag bit
+    bnez t1, lookup_next        # skip the word if it's hidden
 
     # remove the 3-bit flags using a mask
-    li t1, ~FLAGS_MASK         # load the inverted 3-bit flags mask into temporary
-    and t0, t0, t1             # ignore flags when comparing the hashes
-    beq t0, a0, lookup_done    # done if the hashes match
+    li t1, ~FLAGS_MASK          # load the inverted 3-bit flags mask into temporary
+    and t0, t0, t1              # ignore flags when comparing the hashes
+    beq t0, a0, lookup_done     # done if the hashes match
 lookup_next:
-    lw a1, 0(a1)               # follow link to next word in dict
+    lw a1, 0(a1)                # follow link to next word in dict
     j lookup_loop
 lookup_error:
     # check the STATE
     li t0, STATE                # load the address of the STATE variable into temporary
     lw t0, 0(t0)                # load the current state into a temporary
-    beqz t0, error              # if in execute mode (STATE = 0), jump to error handler to reset
+    beqz t0, err_error          # if in execute mode (STATE = 0), jump to error handler to reset
 
-    # update HERE since we're in compile mode
-    li t0, HERE                 # load HERE variable into temporary
-    sw t2, 0(t0)                # store the address of LATEST back into HERE
-
-    # update LATEST since we're in compile mode
-    li t0, LATEST               # load LATEST variable into temporary
-    lw t1, 0(t2)                # load LATEST variable value into temporary
-    sw t1, 0(t0)                # store LATEST word into LATEST variable
-
-    j error                     # jump to error handler
+    restorevars t2              # restore HERE and LATEST (t2)
+    j err_error                 # jump to error handler
 lookup_done:
     ret

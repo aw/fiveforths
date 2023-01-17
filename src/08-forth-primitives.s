@@ -6,7 +6,7 @@
 
 # reboot ( -- )         # Reboot the entire system and initialize memory
 defcode "reboot", 0x06266b70, REBOOT, NULL
-    j reboot            # jump to reboot
+    j err_reboot        # jump to reboot
 
 # @ ( addr -- x )       Fetch memory at addr
 defcode "@", 0x0102b5e5, FETCH, REBOOT
@@ -130,9 +130,9 @@ defcode ":", 0x0102b5df, COLON, LATEST
     sw t0, 0(t3)        # move TOIN to process the next word in the TIB
 
     # bounds checks on token size
-    beqz a1, ok         # ok if token size is 0
+    beqz a1, err_ok     # ok if token size is 0
     li t0, 32           # load max token size  (2^5 = 32) in temporary
-    bgtu a1, t0, error  # error if token size is greater than 32
+    bgtu a1, t0, err_token # error if token size is greater than 32
 
     call djb2_hash      # hash the token
 
@@ -152,7 +152,7 @@ defcode ":", 0x0102b5df, COLON, LATEST
     # bounds check on new word memory location
     addi t4, t2, 3*CELL # prepare to move the HERE pointer to the end of the word
     li t5, PAD          # load out of bounds memory address (PAD)
-    bgt t4, t5, error   # error if the memory address is out of bounds
+    bge t4, t5, err_mem # error if the memory address is out of bounds
 
     # update LATEST variable
     sw t2, 0(t1)        # store the current value of HERE into the LATEST variable
@@ -189,21 +189,28 @@ defcode ";", 0x8102b5e0, SEMI, COLON
     and t1, t1, t2      # unhide the word
     sw t1, CELL(t0)     # write the hash back to memory
 
-    # update HERE variable
+    # store codeword into memory
     li t0, HERE         # copy the memory address of HERE into temporary
     lw t2, 0(t0)        # load the HERE value into temporary
+
+    # bounds check on the exit memory location
+    li t3, PAD          # load out of bounds memory address (PAD)
+    bge t2, t3, memory_error # error if the memory address is out of bounds
+
     la t1, code_EXIT    # load the codeword address into temporary
     sw t1, 0(t2)        # store the codeword address into HERE
 
-    # bounds check on the exit memory location
-    addi t2, t2, CELL   # prepare to move the HERE pointer by 1 CELL
-    li t3, PAD          # load out of bounds memory address (PAD)
-    bgt t2, t3, error   # error if the memory address is out of bounds
-
     # move HERE pointer
+    addi t2, t2, CELL   # prepare to move the HERE pointer by 1 CELL
     sw t2, 0(t0)        # store the new address of HERE into the HERE variable
 
     # update the STATE variable
     li t0, STATE        # load the address of the STATE variable into temporary
     sw zero, 0(t0)      # store the current state back into the STATE variable
     NEXT
+
+memory_error:
+    li t2, LATEST       # copy the memory address of LATEST into temporary
+    lw t2, 0(t2)        # load the address value into temporary
+    restorevars t2      # restore HERE and LATEST (t2)
+    j err_mem

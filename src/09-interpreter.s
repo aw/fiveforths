@@ -37,7 +37,7 @@ skip_send:
 interpreter_tib:
     # add the character to the TIB
     li t4, TIB_TOP                              # load TIB_TOP memory address
-    bge a1, t4, error                           # error if the terminal input buffer is full # FIXME: handle this better
+    bge a1, t4, err_tib                         # error if the terminal input buffer is full
     sb a0, 0(a1)                                # store the character from W register in the TIB
     addi a1, a1, 1                              # increment TOIN value by 1
     li t0, CHAR_NEWLINE                         # load newline into temporary
@@ -82,9 +82,9 @@ process_token:
     sw t0, 0(t3)            # move TOIN to process the next word in the TIB
 
     # bounds checks on token size
-    beqz a1, ok             # ok if token size is 0
+    beqz a1, err_ok         # ok if token size is 0
     li t0, 32               # load max token size  (2^5 = 32) in temporary
-    bgtu a1, t0, error      # error if token size is greater than 32
+    bgtu a1, t0, err_token  # error if token size is greater than 32
 
     # check if the token is a number
     mv t5, a0               # save a0 temporarily
