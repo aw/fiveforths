@@ -54,8 +54,8 @@ It is possible to download a pre-built firmware binary, or build the firmware ma
 
 Download one of the firmware binaries from the [releases page](https://github.com/aw/fiveforths/releases).
 
-* [fiveforths-longan-nano-lite.bin](https://github.com/aw/fiveforths/releases/download/v0.2/fiveforths-longan-nano-lite.bin) (64K Flash, 20K RAM)
-* [fiveforths-longan-nano.bin](https://github.com/aw/fiveforths/releases/download/v0.2/fiveforths-longan-nano.bin) (128K Flash, 32K RAM)
+* [fiveforths-longan-nano-lite.bin](https://github.com/aw/fiveforths/releases/download/v0.3/fiveforths-longan-nano-lite.bin) (64K Flash, 20K RAM)
+* [fiveforths-longan-nano.bin](https://github.com/aw/fiveforths/releases/download/v0.3/fiveforths-longan-nano.bin) (128K Flash, 32K RAM)
 
 ### Build it
 
@@ -87,7 +87,7 @@ $ make
 
 Additional build options are explained in the [HOWTO](HOWTO.md) section.
 
-The firmware file is called `fiveforths.bin` and is **under 2 KBytes** as of _release v0.1_ since _January 08, 2023_.
+The firmware file is called `fiveforths.bin` and is **nearly 2.5 KBytes** as of _release v0.3_ since _January 19, 2023_.
 
 ### Flash it
 

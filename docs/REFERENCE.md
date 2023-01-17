@@ -34,6 +34,7 @@ Below is a list of specifications for _FiveForths_, most can be changed in the s
 * Return character newline: `\n`
 * Maximum word length: `32 characters`
 * Stack effects comments support `( x -- x )`: **yes**
+* Stack and memory overflow/underflow protection: **yes**
 * Backslash comments support `\ comment`: **yes**
 * Multiline code definitions support: **no**
 * OK message: `"   ok\n"`
@@ -167,7 +168,6 @@ The hash is a 32-bit hash with the last 8 bits (from the LSB) used for the Flags
 | FLAGS | LENGTH |      HASH        |
 +-------+--------+------------------+
  3-bits  5-bits   24-bits
-
 ```
 
 ### Other Forths

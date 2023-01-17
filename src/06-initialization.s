@@ -41,13 +41,29 @@ reset:
     li t0, STATE        # load STATE variable
     sw zero, 0(t0)      # initialize STATE variable (0 = execute)
 
+.balign CELL
+# reset the RAM from the last defined word
+ram_init:
+    li t0, HERE         # load HERE memory address
+    lw t0, 0(t0)        # load HERE value
+    li t1, PAD          # load PAD variable
+ram_zerofill:
+    # initialize the memory cells
+    beq t0, t1,ram_done # loop until counter (HERE) == PAD
+    sw zero, 0(t0)      # zero-fill the memory address
+    addi t0, t0, CELL   # increment counter by 1 CELL
+    j ram_zerofill      # repeat
+ram_done:
+    # continue to tib_init
+
+.balign CELL
 # reset the terminal input buffer
 tib_init:
     # initialize TOIN variable
     li t0, TIB          # load TIB memory address
     li t1, TOIN         # load TOIN variable
     li t2, TIB_TOP      # load TIB_TOP variable
-    sw t0, 0(t1)        # initialize TOIN variable to contain TIB start address
+    sw zero, 0(t1)      # initialize TOIN variable to contain zero
 tib_zerofill:
     # initialize the TIB
     beq t2, t0,tib_done # loop until TIB_TOP == TIB
@@ -57,4 +73,4 @@ tib_zerofill:
 tib_done:
     j interpreter_start # jump to the main interpreter REPL
 
-msg_boot: .ascii "FiveForths v0.2, Copyright (c) 2021~ Alexander Williams, https://a1w.ca \n\n"
+msg_boot: .ascii "FiveForths v0.3, Copyright (c) 2021~ Alexander Williams, https://a1w.ca \n\n"

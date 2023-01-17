@@ -21,8 +21,8 @@ Development progress has been logged regularly in the [devlogs](https://aw.githu
 
 The quickest way to get started is to download and flash one of the firmware binaries listed below:.
 
-* [fiveforths-longan-nano-lite.bin](https://github.com/aw/fiveforths/releases/download/v0.2/fiveforths-longan-nano-lite.bin) (64K Flash, 20K RAM)
-* [fiveforths-longan-nano.bin](https://github.com/aw/fiveforths/releases/download/v0.2/fiveforths-longan-nano.bin) (128K Flash, 32K RAM)
+* [fiveforths-longan-nano-lite.bin](https://github.com/aw/fiveforths/releases/download/v0.3/fiveforths-longan-nano-lite.bin) (64K Flash, 20K RAM)
+* [fiveforths-longan-nano.bin](https://github.com/aw/fiveforths/releases/download/v0.3/fiveforths-longan-nano.bin) (128K Flash, 32K RAM)
 
 See the [TUTORIALS](docs/TUTORIALS.md) for detailed download and flashing information.
 
@@ -35,8 +35,6 @@ See the [TUTORIALS](docs/TUTORIALS.md) for detailed download and flashing inform
 
 # TODO
 
-- [ ] Implement bounds checks for stacks and dictionary
-- [ ] Add example Forth code to turn it into a "real" Forth (ex: `[`, `]`, `branch`, etc)
 - [ ] Code cleanup and optimizations
 
 # Contributing
@@ -44,6 +42,17 @@ See the [TUTORIALS](docs/TUTORIALS.md) for detailed download and flashing inform
 Please create a pull-request or [open an issue](https://github.com/aw/picolisp-kv/issues/new) on GitHub.
 
 # Changelog
+
+## 0.3 (2023-01-19)
+
+  * Fix issue #7 - Implement bounds checks for stacks
+  * Fix issue #8 - Implement bounds checks for user dictionary
+  * Fix issue #13 - `TOIN` should not be an address
+  * Fix issue #14 - `STORE` primitive is incorrect
+  * Add better error messages
+  * Add detailed documentation in [docs](docs/)
+  * Add `djb2.c` to generate a word's hash locally
+  * Add RAM zerofill of unused dictionary space on reset
 
 ## 0.2 (2023-01-10)
 

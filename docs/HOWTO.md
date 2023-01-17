@@ -95,7 +95,7 @@ Accessing _FiveForths_ through the terminal should look similar to this:
 ```
 --- Miniterm on /dev/ttyUSB0  115200,8,N,1 ---
 --- Quit: Ctrl+] | Menu: Ctrl+T | Help: Ctrl+T followed by Ctrl+H ---
-FiveForths v0.2, Copyright (c) 2021~ Alexander Williams, https://a1w.ca 
+FiveForths v0.3, Copyright (c) 2021~ Alexander Williams, https://a1w.ca
 
 ```
 
