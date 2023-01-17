@@ -112,7 +112,7 @@ lookup_error:
     # check the STATE
     li t0, STATE                # load the address of the STATE variable into temporary
     lw t0, 0(t0)                # load the current state into a temporary
-    beqz t0, err_error          # if in execute mode (STATE = 0), jump to error handler to reset
+    beqz t0, error              # if in execute mode (STATE = 0), jump to error handler to reset
 
     # update HERE since we're in compile mode
     li t0, HERE                 # load HERE variable into temporary
@@ -123,6 +123,6 @@ lookup_error:
     lw t1, 0(t2)                # load LATEST variable value into temporary
     sw t1, 0(t0)                # store LATEST word into LATEST variable
 
-    j err_error                 # jump to error handler
+    j error                     # jump to error handler
 lookup_done:
     ret

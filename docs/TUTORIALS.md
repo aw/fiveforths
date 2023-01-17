@@ -87,7 +87,7 @@ $ make
 
 Additional build options are explained in the [HOWTO](HOWTO.md) section.
 
-The firmware file is called `fiveforths.bin` and is **slightly over 2 KBytes** as of _release v0.3_ since _January 16, 2023_.
+The firmware file is called `fiveforths.bin` and is **under 2 KBytes** as of _release v0.1_ since _January 08, 2023_.
 
 ### Flash it
 

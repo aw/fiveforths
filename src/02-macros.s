@@ -18,18 +18,12 @@
 
 # push register to top of stack and move DSP
 .macro PUSH reg
-    li t0, RSP_TOP+(1*CELL)     # load address of top of DSP with -4 offset (needs 1 CELL)
-    blt sp, t0, err_overflow    # jump to error handler if stack overflow
-
     sw \reg, -CELL(sp)  # store the value in the register to the top of the DSP
     addi sp, sp, -CELL  # move the DSP down by 1 cell
 .endm
 
 # push variable to top of stack
 .macro PUSHVAR var
-    li t0, RSP_TOP+(1*CELL)     # load address of top of DSP with -4 offset (needs 1 CELL)
-    blt sp, t0, err_overflow    # jump to error handler if stack overflow
-
     li t0, \var         # load variable into temporary
     sw t0, -CELL(sp)    # store the variable value to the top of the DSP
     addi sp, sp, -CELL  # move the DSP down by 1 cell
@@ -37,18 +31,12 @@
 
 # push register to return stack
 .macro PUSHRSP reg
-    li t0, RSP_TOP+(1*CELL)     # load address of top of RSP with -4 offset (needs 1 CELL)
-    blt s2, t0, err_overflow    # jump to error handler if stack overflow
-
     sw \reg, -CELL(s2)  # store value from register into RSP
     addi s2, s2, -CELL  # decrement RSP by 1 cell
 .endm
 
 # pop top of return stack to register
 .macro POPRSP reg
-    li t0, RSP_TOP-(1*CELL)     # load address of top of RSP with -4 offset (needs 1 CELL)
-    bgt s2, t0, err_underflow   # jump to error handler if stack underflow
-
     lw \reg, 0(s2)      # load value from RSP into register
     addi s2, s2, CELL   # increment RSP by 1 cell
 .endm
@@ -78,14 +66,4 @@
     # validate the character which is located in the W (a0) register
     li t0, \char        # load character into temporary
     beq a0, t0, \dest   # jump to the destination if the char matches
-.endm
-
-# print a message
-.macro print_error name, size, jump
-    .balign CELL
-  err_\name :
-    la a1, msg_\name    # load string message
-    addi a2, a1, \size  # load string length
-    call uart_print     # call uart print function
-    j \jump             # jump when print returns
 .endm

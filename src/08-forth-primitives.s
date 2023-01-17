@@ -6,7 +6,7 @@
 
 # reboot ( -- )         # Reboot the entire system and initialize memory
 defcode "reboot", 0x06266b70, REBOOT, NULL
-    j err_reboot        # jump to reboot
+    j reboot            # jump to reboot
 
 # @ ( addr -- x )       Fetch memory at addr
 defcode "@", 0x0102b5e5, FETCH, REBOOT
@@ -17,9 +17,6 @@ defcode "@", 0x0102b5e5, FETCH, REBOOT
 
 # ! ( x addr -- )       Store x at addr
 defcode "!", 0x0102b5c6, STORE, FETCH
-    li t0, DSP_TOP-(2*CELL)     # load address of top of DSP with -8 offset (needs 2 CELLs)
-    bgt sp, t0, err_underflow   # jump to error handler if stack underflow
-
     lw t0, 0(sp)        # load the DSP value (x) into temporary
     lw t1, CELL(sp)     # load the DSP value (addr) into temporary
     sw t0, 0(t1)        # store x into addr
@@ -46,9 +43,6 @@ defcode "0=", 0x025970b2, ZEQU, RSPFETCH
 
 # + ( x1 x2 -- n )      Add the two values at the top of the stack
 defcode "+", 0x0102b5d0, ADD, ZEQU
-    li t0, DSP_TOP-(2*CELL)     # load address of top of DSP with -8 offset (needs 2 CELLs)
-    bgt sp, t0, err_underflow   # jump to error handler if stack underflow
-
     POP t0              # pop DSP value (x1) into temporary
     lw t1, 0(sp)        # load DSP value (x2) into temporary
     add t0, t0, t1      # add the two values
@@ -57,9 +51,6 @@ defcode "+", 0x0102b5d0, ADD, ZEQU
 
 # nand ( x1 x2 -- n )   Bitwise NAND the two values at the top of the stack
 defcode "nand", 0x049b0c66, NAND, ADD
-    li t0, DSP_TOP-(2*CELL)     # load address of top of DSP with -8 offset (needs 2 CELLs)
-    bgt sp, t0, err_underflow   # jump to error handler if stack underflow
-
     POP t0              # pop DSP value (x1) into temporary
     lw t1, 0(sp)        # load DSP value (x2) into temporary
     and t0, t0, t1      # perform bitwise AND of the two values
@@ -139,9 +130,9 @@ defcode ":", 0x0102b5df, COLON, LATEST
     sw t0, 0(t3)        # move TOIN to process the next word in the TIB
 
     # bounds checks on token size
-    beqz a1, err_ok     # ok if token size is 0
+    beqz a1, ok         # ok if token size is 0
     li t0, 32           # load max token size  (2^5 = 32) in temporary
-    bgtu a1, t0, err_token # error if token size is greater than 32
+    bgtu a1, t0, error  # error if token size is greater than 32
 
     call djb2_hash      # hash the token
 
@@ -160,8 +151,8 @@ defcode ":", 0x0102b5df, COLON, LATEST
 
     # bounds check on new word memory location
     addi t4, t2, 3*CELL # prepare to move the HERE pointer to the end of the word
-    li t5, PAD-4        # load out of bounds memory address (PAD)
-    bgt t4, t5, err_mem # error if the memory address is out of bounds
+    li t5, PAD          # load out of bounds memory address (PAD)
+    bgt t4, t5, error   # error if the memory address is out of bounds
 
     # update LATEST variable
     sw t2, 0(t1)        # store the current value of HERE into the LATEST variable
@@ -201,14 +192,13 @@ defcode ";", 0x8102b5e0, SEMI, COLON
     # update HERE variable
     li t0, HERE         # copy the memory address of HERE into temporary
     lw t2, 0(t0)        # load the HERE value into temporary
-
-    # bounds check on the exit memory location
-    li t3, PAD-4        # load out of bounds memory address (PAD)
-    bgt t2, t3, compile_error # error if the memory address is out of bounds
-
     la t1, code_EXIT    # load the codeword address into temporary
     sw t1, 0(t2)        # store the codeword address into HERE
+
+    # bounds check on the exit memory location
     addi t2, t2, CELL   # prepare to move the HERE pointer by 1 CELL
+    li t3, PAD          # load out of bounds memory address (PAD)
+    bgt t2, t3, error   # error if the memory address is out of bounds
 
     # move HERE pointer
     sw t2, 0(t0)        # store the new address of HERE into the HERE variable

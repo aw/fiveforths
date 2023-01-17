@@ -35,6 +35,8 @@ See the [TUTORIALS](docs/TUTORIALS.md) for detailed download and flashing inform
 
 # TODO
 
+- [ ] Implement bounds checks for stacks and dictionary
+- [ ] Add example Forth code to turn it into a "real" Forth (ex: `[`, `]`, `branch`, etc)
 - [ ] Code cleanup and optimizations
 
 # Contributing
@@ -42,14 +44,6 @@ See the [TUTORIALS](docs/TUTORIALS.md) for detailed download and flashing inform
 Please create a pull-request or [open an issue](https://github.com/aw/picolisp-kv/issues/new) on GitHub.
 
 # Changelog
-
-## 0.3 (TIB)
-
-  * Implement bounds checks for stacks
-  * Implement bounds checks for user dictionary
-  * Add better error messages
-  * Add detailed documentation in [docs](docs/)
-  * Add `djb2.c` to generate a word's hash locally
 
 ## 0.2 (2023-01-10)
 

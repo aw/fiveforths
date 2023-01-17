@@ -37,7 +37,7 @@ skip_send:
 interpreter_tib:
     # add the character to the TIB
     li t4, TIB_TOP                              # load TIB_TOP memory address
-    bge a1, t4, err_tib                         # error if the terminal input buffer is full
+    bge a1, t4, error                           # error if the terminal input buffer is full # FIXME: handle this better
     sb a0, 0(a1)                                # store the character from W register in the TIB
     addi a1, a1, 1                              # increment TOIN value by 1
     li t0, CHAR_NEWLINE                         # load newline into temporary
@@ -82,9 +82,9 @@ process_token:
     sw t0, 0(t3)            # move TOIN to process the next word in the TIB
 
     # bounds checks on token size
-    beqz a1, err_ok         # ok if token size is 0
+    beqz a1, ok             # ok if token size is 0
     li t0, 32               # load max token size  (2^5 = 32) in temporary
-    bgtu a1, t0, err_token  # error if token size is greater than 32
+    bgtu a1, t0, error      # error if token size is greater than 32
 
     # check if the token is a number
     mv t5, a0               # save a0 temporarily
@@ -131,46 +131,22 @@ compile:
     addi t0, a1, 2*CELL     # increment the address of the found word by 8 to get the codeword address
     li t1, HERE             # load HERE variable into temporary
     lw t2, 0(t1)            # load HERE value into temporary
-
-    # bounds check on codeword memory location
-    li t3, PAD-4                # load out of bounds memory address (PAD)
-    bgt t2, t3, compile_error   # error if the memory address is out of bounds
-
     sw t0, 0(t2)            # write the address of the codeword to the current definition
 
     addi t0, t2, CELL       # increment HERE by 4
     sw t0, 0(t1)            # store new HERE address
 compile_done:
     j process_token
-compile_error:
-    li t0, HERE             # load HERE variable into temporary
-    li t1, LATEST           # load LATEST variable into temporary
-    lw t2, 0(t1)            # load the address of the previous word into temporary (LATEST)
-
-    # update HERE
-    sw t2, 0(t0)            # store the address of LATEST back into HERE
-
-    # update LATEST
-    lw t0, 0(t2)            # load LATEST variable value into temporary
-    sw t0, 0(t1)            # store LATEST word into LATEST variable
-
-    j err_mem               # jump to error handler
 
 push_number:
     # push to stack if STATE = 0 (execute)
     li t1, STATE            # load the address of the STATE variable into temporary
     lw t1, 0(t1)            # load the current state into a temporary
     beqz t1, push_stack     # if in execute mode, push the number to the stack
-
     # push to memory if STATE = 1 (compile)
     la t0, code_LIT         # load the codeword address of LIT into temporary
     li t1, HERE             # load HERE variable into temporary
     lw t2, 0(t1)            # load HERE value into temporary
-
-    # bounds check on codeword memory location
-    li t3, PAD-8                # load out of bounds memory address (PAD)
-    bgt t2, t3, compile_error   # error if the memory address is out of bounds
-
     sw t0, 0(t2)            # write the codeword address of LIT to memory (HERE)
     sw a0, 4(t2)            # write the number from W to the next memory cell (HERE+4)
     addi t0, t2, 2*CELL     # increment HERE by 2 CELLs
