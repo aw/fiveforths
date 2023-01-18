@@ -37,6 +37,9 @@
 
 # pop top of return stack to register
 .macro POPRSP reg
+    li t0, RSP_TOP              # load address of top of RSP
+    bge s2, t0, err_underflow   # jump to error handler if stack underflow
+
     lw \reg, 0(s2)      # load value from RSP into register
     addi s2, s2, CELL   # increment RSP by 1 cell
 .endm
@@ -88,4 +91,10 @@
     li t0, LATEST       # load LATEST variable into temporary
     lw t1, 0(\reg)      # load LATEST variable value into temporary
     sw t1, 0(t0)        # store LATEST word into LATEST variable
+.endm
+
+# check for stack underflow
+.macro checkunderflow stacktop
+    li t0, DSP_TOP-\stacktop    # load address of top of stack
+    bge sp, t0, err_underflow   # jump to error handler if stack underflow
 .endm

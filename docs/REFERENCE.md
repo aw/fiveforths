@@ -167,7 +167,6 @@ The hash is a 32-bit hash with the last 8 bits (from the LSB) used for the Flags
 | FLAGS | LENGTH |      HASH        |
 +-------+--------+------------------+
  3-bits  5-bits   24-bits
-
 ```
 
 ### Other Forths

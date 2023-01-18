@@ -45,8 +45,9 @@ Please create a pull-request or [open an issue](https://github.com/aw/picolisp-k
 
 ## 0.3 (TIB)
 
-  * Implement bounds checks for stacks
-  * Implement bounds checks for user dictionary
+  * Fix issue #7 - Implement bounds checks for stacks
+  * Fix issue #8 - Implement bounds checks for user dictionary
+  * Fix issue #14 - `STORE` primitive is incorrect
   * Add better error messages
   * Add detailed documentation in [docs](docs/)
   * Add `djb2.c` to generate a word's hash locally

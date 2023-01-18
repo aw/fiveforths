@@ -10,6 +10,7 @@ defcode "reboot", 0x06266b70, REBOOT, NULL
 
 # @ ( addr -- x )       Fetch memory at addr
 defcode "@", 0x0102b5e5, FETCH, REBOOT
+    checkunderflow 0    # check for stack underflow of data stack (1 CELL)
     lw t0, 0(sp)        # load the top of stack into temporary
     lw t0, 0(t0)        # load the value from the temporary (addr)
     sw t0, 0(sp)        # store the value back the top of stack (x)
@@ -17,6 +18,7 @@ defcode "@", 0x0102b5e5, FETCH, REBOOT
 
 # ! ( x addr -- )       Store x at addr
 defcode "!", 0x0102b5c6, STORE, FETCH
+    checkunderflow CELL # check for stack underflow of data stack (2 CELLs)
     lw t1, 0(sp)        # load the DSP value (addr) into temporary
     lw t0, CELL(sp)     # load the DSP value (x) into temporary
     sw t0, 0(t1)        # store x into addr
@@ -35,6 +37,7 @@ defcode "rp@", 0x0388a687, RSPFETCH, DSPFETCH
 
 # 0= ( x -- f )         -1 if top of stack is 0, 0 otherwise
 defcode "0=", 0x025970b2, ZEQU, RSPFETCH
+    checkunderflow 0    # check for stack underflow of data stack (1 CELL)
     lw t0, 0(sp)        # load the DSP value (x) into temporary
     snez t0, t0         # store 0 in temporary if it's equal to 0, otherwise store 1
     addi t0, t0, -1     # store -1 in temporary if it's 0, otherwise store 0
@@ -43,6 +46,7 @@ defcode "0=", 0x025970b2, ZEQU, RSPFETCH
 
 # + ( x1 x2 -- n )      Add the two values at the top of the stack
 defcode "+", 0x0102b5d0, ADD, ZEQU
+    checkunderflow CELL # check for stack underflow of data stack (2 CELLs)
     POP t0              # pop DSP value (x1) into temporary
     lw t1, 0(sp)        # load DSP value (x2) into temporary
     add t0, t0, t1      # add the two values
@@ -51,6 +55,7 @@ defcode "+", 0x0102b5d0, ADD, ZEQU
 
 # nand ( x1 x2 -- n )   Bitwise NAND the two values at the top of the stack
 defcode "nand", 0x049b0c66, NAND, ADD
+    checkunderflow CELL # check for stack underflow of data stack (2 CELLs)
     POP t0              # pop DSP value (x1) into temporary
     lw t1, 0(sp)        # load DSP value (x2) into temporary
     and t0, t0, t1      # perform bitwise AND of the two values
@@ -82,6 +87,7 @@ defcode "key", 0x0388878e, KEY, EXIT
 
 # emit ( x -- )         Write 8-bit character to uart output
 defcode "emit", 0x04964f74, EMIT, KEY
+    checkunderflow 0    # check for stack underflow of data stack (1 CELL)
     POP a0              # copy top of data stack into W
     call uart_put       # send character from W to uart
     NEXT
