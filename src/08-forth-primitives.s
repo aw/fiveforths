@@ -17,8 +17,8 @@ defcode "@", 0x0102b5e5, FETCH, REBOOT
 
 # ! ( x addr -- )       Store x at addr
 defcode "!", 0x0102b5c6, STORE, FETCH
-    lw t0, 0(sp)        # load the DSP value (x) into temporary
-    lw t1, CELL(sp)     # load the DSP value (addr) into temporary
+    lw t1, 0(sp)        # load the DSP value (addr) into temporary
+    lw t0, CELL(sp)     # load the DSP value (x) into temporary
     sw t0, 0(t1)        # store x into addr
     addi sp, sp, 2*CELL # move DSP up by 2 cells
     NEXT
