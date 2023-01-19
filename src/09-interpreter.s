@@ -16,8 +16,7 @@ interpreter:
     beq a0, t4, skip_send                       # don't send the character if it's a newline
 
     # ignore specific characters
-    mv t4, zero                                 # load 0x00 zero into temporary
-    beq a0, t4, interpreter                     # ignore the character if it matches
+    beqz a0, interpreter                        # ignore the character if it matches
     li t4, CHAR_CARRIAGE                        # load 0x0D carriage return into temporary
     beq a0, t4, interpreter                     # ignore the character if it matches
 
