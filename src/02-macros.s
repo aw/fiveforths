@@ -25,16 +25,6 @@
     addi sp, sp, -CELL  # move the DSP down by 1 cell
 .endm
 
-# push variable to top of stack
-.macro PUSHVAR var
-    li t0, RSP_TOP+CELL         # load address of bottom of stack + 1 CELL
-    blt sp, t0, err_overflow    # jump to error handler if stack overflow
-
-    li t0, \var         # load variable into temporary
-    sw t0, -CELL(sp)    # store the variable value to the top of the DSP
-    addi sp, sp, -CELL  # move the DSP down by 1 cell
-.endm
-
 # push register to return stack
 .macro PUSHRSP reg
     li t0, TIB_TOP+CELL         # load address of bottom of stack + 1 CELL

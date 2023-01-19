@@ -65,8 +65,8 @@ defcode "nand", 0x049b0c66, NAND, ADD
 
 # lit ( -- n )          Get the next word from IP and push it to the stack, increment IP
 defcode "lit", 0x03888c4e, LIT, NAND
-    lw t0, 0(s1)        # load the memory address from IP into temporary
-    PUSH t0             # push the literal to the top of the stack
+    lw t1, 0(s1)        # load the memory address from IP into temporary
+    PUSH t1             # push the literal to the top of the stack
     addi s1, s1, CELL   # increment IP by 1 CELL
     NEXT
 
@@ -98,27 +98,32 @@ defcode "emit", 0x04964f74, EMIT, KEY
 
 # tib ( -- addr )       Store TIB variable address in top of data stack
 defcode "tib", 0x0388ae44, TIB, EMIT
-    PUSHVAR TIB
+    li t1, TIB          # load variable into temporary
+    PUSH t1
     NEXT
 
 # state ( -- addr )     Store STATE variable address in top of data stack
 defcode "state", 0x05614a06, STATE, TIB
-    PUSHVAR STATE
+    li t1, STATE        # load variable into temporary
+    PUSH t1
     NEXT
 
 # >in ( -- addr )       Store TOIN variable address in top of data stack
 defcode ">in", 0x0387c89a, TOIN, STATE
-    PUSHVAR TOIN
+    li t1, TOIN         # load variable into temporary
+    PUSH t1
     NEXT
 
 # here ( -- addr )      Store HERE variable address in top of data stack
 defcode "here", 0x0497d3a9, HERE, TOIN
-    PUSHVAR HERE
+    li t1, HERE         # load variable into temporary
+    PUSH t1
     NEXT
 
 # latest ( -- addr )     Store LATEST variable address in top of data stack
 defcode "latest", 0x06e8ca72, LATEST, HERE
-    PUSHVAR LATEST
+    li t1, LATEST       # load variable into temporary
+    PUSH t1
     NEXT
 
 ##
