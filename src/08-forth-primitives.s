@@ -132,12 +132,16 @@ defcode "latest", 0x06e8ca72, LATEST, HERE
 
 # : ( -- )              # Start the definition of a new word
 defcode ":", 0x0102b5df, COLON, LATEST
+    li t2, TIB          # load TIB memory address
     li t3, TOIN         # load TOIN variable into unused temporary register
-    lw a0, 0(t3)        # load TOIN address value into temporary
+    lw a0, 0(t3)        # load TOIN value into temporary
+    add a0, a0, t2      # add TIB to TOIN to get the start address of TOIN
     call token          # read the token
 
     # move TOIN
+    li t2, TIB          # load TIB memory address
     add t0, a0, a1      # add the size of the token to TOIN
+    sub t0, t0, t2      # subtract the address of TOIN from TIB to get the new size of TOIN
     sw t0, 0(t3)        # move TOIN to process the next word in the TIB
 
     # bounds checks on token size

@@ -63,7 +63,7 @@ tib_init:
     li t0, TIB          # load TIB memory address
     li t1, TOIN         # load TOIN variable
     li t2, TIB_TOP      # load TIB_TOP variable
-    sw t0, 0(t1)        # initialize TOIN variable to contain TIB start address
+    sw zero, 0(t1)      # initialize TOIN variable to contain zero
 tib_zerofill:
     # initialize the TIB
     beq t2, t0,tib_done # loop until TIB_TOP == TIB
@@ -73,4 +73,4 @@ tib_zerofill:
 tib_done:
     j interpreter_start # jump to the main interpreter REPL
 
-msg_boot: .ascii "FiveForths v0.2, Copyright (c) 2021~ Alexander Williams, https://a1w.ca \n\n"
+msg_boot: .ascii "FiveForths v0.3, Copyright (c) 2021~ Alexander Williams, https://a1w.ca \n\n"
