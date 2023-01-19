@@ -18,7 +18,7 @@
 
 # push register to top of stack and move DSP
 .macro PUSH reg
-    li t0, RSP_TOP+CELL         # load address of bottom of stack + 1 CELL
+    li t0, RSP_TOP              # load address of bottom of stack + 1 CELL
     blt sp, t0, err_overflow    # jump to error handler if stack overflow
 
     sw \reg, -CELL(sp)  # store the value in the register to the top of the DSP
@@ -27,7 +27,7 @@
 
 # push register to return stack
 .macro PUSHRSP reg
-    li t0, TIB_TOP+CELL         # load address of bottom of stack + 1 CELL
+    li t0, TIB_TOP              # load address of bottom of stack + 1 CELL
     blt s2, t0, err_overflow    # jump to error handler if stack overflow
 
     sw \reg, -CELL(s2)  # store value from register into RSP
