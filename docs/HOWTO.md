@@ -12,7 +12,8 @@ This document provides more detailed information on build, use, and write code f
 2. [Rebuilding the firmware](#rebuilding-the-firmware)
 3. [Debug with JTAG](#debug-with-jtag)
 4. [Defining words (Forth)](#defining-words)
-5. [Adding primitives (Assembly)](#adding-primitives)
+5. [Toggle an LED](#toggle-an-led)
+6. [Adding primitives (Assembly)](#adding-primitives)
 
 ### Building for other boards
 
@@ -93,37 +94,71 @@ info all-registers
 Accessing _FiveForths_ through the terminal should look similar to this:
 
 ```
+$ pyserial-miniterm --eol LF /dev/ttyUSB0 115200
 --- Miniterm on /dev/ttyUSB0  115200,8,N,1 ---
 --- Quit: Ctrl+] | Menu: Ctrl+T | Help: Ctrl+T followed by Ctrl+H ---
-FiveForths v0.3, Copyright (c) 2021~ Alexander Williams, https://a1w.ca
+FiveForths v0.4, Copyright (c) 2021~ Alexander Williams, https://a1w.ca
 
 ```
 
-Some basic words can then be defined (borrowed from [derzforth prelude.forth](https://github.com/theandrew168/derzforth/blob/main/lexicons/prelude.forth)):
+Some basic words can then be defined (borrowed from [sectorforth hello-world](https://github.com/cesarblum/sectorforth/blob/master/examples/01-helloworld.f) and [planckforth bootstrap](https://github.com/nineties/planckforth/blob/main/bootstrap.fs)):
 
 ```
 : dup sp@ @ ;
-: invert dup nand ;
+: invert -1 nand ;
 : negate invert 1 + ;
 : - negate + ;
 : drop dup - + ;
-: over sp@ 4 - @ ;
-: swap over over sp@ 12 - ! sp@ 4 - ! ;
+: over sp@ 4 + @ ;
+: swap over over sp@ 12 + ! sp@ 4 + ! ;
 : nip swap drop ;
 : 2dup over over ;
 : 2drop drop drop ;
 : and nand invert ;
-: or invert swap invert and invert ;
+: or invert swap invert nand ;
 : = - 0= ;
 : <> = invert ;
 : , here @ ! here @ 4 + here ! ;
-: immediate latest @ 4 + dup @ 2147483648 or swap ! ;
+: immediate latest @ 4 + dup @ 0x80000000 or swap ! ;
 : [ 0 state ! ; immediate
 : ] 1 state ! ;
 : branch rp@ @ dup @ + rp@ ! ;
 ```
 
 Of course, it is possible to define many other words to suit your needs.
+
+### Toggle an LED
+
+The following code can be used to turn on the green and blue LEDs on GPIOA pins 1 and 2:
+
+```
+: green_led_on 0x40010800 @ 0xFFFFFF0F and 0x00000030 or 0x40010800 ! ;
+: blue_led_on 0x40010800 @ 0xFFFFF0FF and 0x00000300 or 0x40010800 ! ;
+green_led_on
+blue_led_on
+```
+
+And to turn off the same LEDs:
+
+```
+: green_led_off 0x40010800 @ 0xFFFFFF0F and 0x00000040 or 0x40010800 ! ;
+: blue_led_off 0x40010800 @ 0xFFFFF0FF and 0x00000400 or 0x40010800 ! ;
+green_led_off
+blue_led_off
+```
+
+This requires the above defined words: `invert, over, swap, and, or`.
+
+To explain the values:
+
+* `0x40010800`: GPIOA base address with offset `0x00` for `CTL0` pins 0-7 (would be `CTL1` with offset `0x04` for pins 8-15).
+* `0xFFFFF0FF`: mask to clear GPIO pin 2 (would be the same for GPIO pin 10, while GPIO pin 1 would be `0xFFFFFF0F` and GPIO pin 8 would be `0xFFFFFFF0`).
+* `0x00000030`: GPIO pin 1 setting `0b0011` which is `push-pull output, max speed 50MHz`.
+* `0x00000040`: GPIO pin 1 setting `0b0100` which is `floating input`.
+* `0x00000300`: GPIO pin 2 setting `0b0011` which is `push-pull output, max speed 50MHz`.
+* `0x00000400`: GPIO pin 2 setting `0b0100` which is `floating input`.
+
+The code above uses those pre-calculated values to read the existing GPIOA config from a memory address (with `@`), apply a mask (with `and`), apply the new config (with `or`), then store it back to the memory address (with `!`), thus writing the new GPIOA which toggles the pins low/high (active-low, therefore low turns on the LED, high turns it off).
 
 ### Adding primitives
 
