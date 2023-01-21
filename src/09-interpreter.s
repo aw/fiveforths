@@ -94,7 +94,7 @@ process_token:
     mv t5, a0               # save a0 temporarily
     mv t6, a1               # save a1 temporarily
     call number             # try to convert the token to an integer
-    bnez a1, push_number    # push the token to the stack or memory if it's a number
+    beqz a1, push_number    # push the token to the stack or memory if it's a number
     mv a0, t5               # restore a0
     mv a1, t6               # restore a1
 
