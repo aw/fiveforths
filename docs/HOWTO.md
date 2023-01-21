@@ -99,21 +99,21 @@ FiveForths v0.3, Copyright (c) 2021~ Alexander Williams, https://a1w.ca
 
 ```
 
-Some basic words can then be defined (borrowed from [derzforth prelude.forth](https://github.com/theandrew168/derzforth/blob/main/lexicons/prelude.forth)):
+Some basic words can then be defined (borrowed from [sectorforth hello-world](https://github.com/cesarblum/sectorforth/blob/master/examples/01-helloworld.f) and [planckforth bootstrap](https://github.com/nineties/planckforth/blob/main/bootstrap.fs)):
 
 ```
 : dup sp@ @ ;
-: invert dup nand ;
+: invert -1 nand ;
 : negate invert 1 + ;
 : - negate + ;
 : drop dup - + ;
-: over sp@ 4 - @ ;
-: swap over over sp@ 12 - ! sp@ 4 - ! ;
+: over sp@ 4 + @ ;
+: swap over over sp@ 12 + ! sp@ 4 + ! ;
 : nip swap drop ;
 : 2dup over over ;
 : 2drop drop drop ;
 : and nand invert ;
-: or invert swap invert and invert ;
+: or invert swap invert nand ;
 : = - 0= ;
 : <> = invert ;
 : , here @ ! here @ 4 + here ! ;

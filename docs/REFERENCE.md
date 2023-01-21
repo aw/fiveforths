@@ -182,6 +182,7 @@ This document would be incomplete without listing other Forths which inspired me
 * [nasmjf, the devlog idea and well documented](http://ratfactor.com/nasmjf/)
 * [CamelForth, by Brad Rodriguez (Moving Forth)](http://www.camelforth.com)
 * [muforth, the sum of all Forth knowledge](https://muforth.nimblemachines.com/)
+* [planckforth, how to bootstrap a Forth](https://github.com/nineties/planckforth/)
 
 Additional information can be found in the [devlogs](https://aw.github.io/fiveforths).
 
