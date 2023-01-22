@@ -12,7 +12,8 @@ This document provides more detailed information on build, use, and write code f
 2. [Rebuilding the firmware](#rebuilding-the-firmware)
 3. [Debug with JTAG](#debug-with-jtag)
 4. [Defining words (Forth)](#defining-words)
-5. [Adding primitives (Assembly)](#adding-primitives)
+5. [Turning on an LED](#turning-on-an-led)
+6. [Adding primitives (Assembly)](#adding-primitives)
 
 ### Building for other boards
 
@@ -124,6 +125,25 @@ Some basic words can then be defined (borrowed from [sectorforth hello-world](ht
 ```
 
 Of course, it is possible to define many other words to suit your needs.
+
+### Turning on an LED
+
+The following code can be used to turn on the blue LED on GPIOA pin 2:
+
+```
+: blue_led 0x40010800 @ 0xFFFFF0FF and 0x00000300 or 0x40010800 ! ;
+blue_led
+```
+
+This requires the above defined words: `or, invert, swap, over, and`.
+
+To explain the values:
+
+* `0x40010800`: GPIOA base address with offset `0x00` for `CTL0` pins 0-7 (would be `CTL1` with offset `0x04` for pins 8-15).
+* `0xFFFFF0FF`: mask to clear GPIO pin 2 (would be the same for GPIO pin 10, while GPIO pin 5 would be `0xFF0FFFFF` and GPIO pin 8 would be `0xFFFFFFF0`).
+* `0x00000300`: GPIO pin 2 setting `0b0011` which is `push-pull output, max speed 50MHz`.
+
+The code above uses those pre-calculated values to read the existing GPIOA config from a memory address (with `@`), apply a mask (with `and`), apply the new config (with `or`), then store it back to the memory address (with `!`), thus writing the new GPIOA which sets pin 2 low (active-low, therefore it turns on the blue LED).
 
 ### Adding primitives
 
