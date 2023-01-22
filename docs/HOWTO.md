@@ -94,6 +94,7 @@ info all-registers
 Accessing _FiveForths_ through the terminal should look similar to this:
 
 ```
+$ pyserial-miniterm --eol LF /dev/ttyUSB0 115200
 --- Miniterm on /dev/ttyUSB0  115200,8,N,1 ---
 --- Quit: Ctrl+] | Menu: Ctrl+T | Help: Ctrl+T followed by Ctrl+H ---
 FiveForths v0.3, Copyright (c) 2021~ Alexander Williams, https://a1w.ca
@@ -128,25 +129,25 @@ Of course, it is possible to define many other words to suit your needs.
 
 ### Toggle an LED
 
-The following code can be used to turn on the blue and green LEDs on GPIOA pins 1 and 2:
+The following code can be used to turn on the green and blue LEDs on GPIOA pins 1 and 2:
 
 ```
-: blue_led_on 0x40010800 @ 0xFFFFF0FF and 0x00000300 or 0x40010800 ! ;
 : green_led_on 0x40010800 @ 0xFFFFFF0F and 0x00000030 or 0x40010800 ! ;
-blue_led_on
+: blue_led_on 0x40010800 @ 0xFFFFF0FF and 0x00000300 or 0x40010800 ! ;
 green_led_on
+blue_led_on
 ```
 
 And to turn off the same LEDs:
 
 ```
-: blue_led_off 0x40010800 @ 0xFFFFF0FF and 0x00000400 or 0x40010800 ! ;
 : green_led_off 0x40010800 @ 0xFFFFFF0F and 0x00000040 or 0x40010800 ! ;
-blue_led_off
+: blue_led_off 0x40010800 @ 0xFFFFF0FF and 0x00000400 or 0x40010800 ! ;
 green_led_off
+blue_led_off
 ```
 
-This requires the above defined words: `or, invert, swap, over, and`.
+This requires the above defined words: `invert, over, swap, and, or`.
 
 To explain the values:
 

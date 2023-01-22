@@ -4,6 +4,8 @@
 
 [FiveForths](https://github.com/aw/fiveforths) is a tiny [Forth](https://www.forth.com/starting-forth/) written in hand-coded RISC-V assembly, initially designed to run on the 32-bit [Longan Nano](https://longan.sipeed.com/en/) (GD32VF103) microcontroller.
 
+![fiveforths-terminal](https://user-images.githubusercontent.com/153401/213904509-089dd490-62e2-4c9d-9f9c-a6e5fab34e17.png)
+
 _FiveForths_ currently uses the _indirect threading_ model and only has 19 built-in primitive words. It is 100% fully functional and can be extended by adding new primitives (in Assembly) or by defining new words (in Forth). This implementation is loosely inspired by [sectorforth](https://github.com/cesarblum/sectorforth), [jonesforth](https://github.com/nornagon/jonesforth), and [derzforth](https://github.com/theandrew168/derzforth).
 
 Development progress has been logged regularly in the [devlogs](https://aw.github.io/fiveforths/).

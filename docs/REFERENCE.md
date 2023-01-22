@@ -36,6 +36,8 @@ Below is a list of specifications for _FiveForths_, most can be changed in the s
 * Stack effects comments support `( x -- x )`: **yes**
 * Stack and memory overflow/underflow protection: **yes**
 * Backslash comments support `\ comment`: **yes**
+* Decimal string number input support `12345` and `-202`: **yes**
+* Hex string number input support `0xCAFE4241` and `-0xCA`: **yes**
 * Multiline code definitions support: **no**
 * OK message: `"   ok\n"`
 * ERROR message: `"  ?\n"`
