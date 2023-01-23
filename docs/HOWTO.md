@@ -119,7 +119,7 @@ Some basic words can then be defined (borrowed from [sectorforth hello-world](ht
 : = - 0= ;
 : <> = invert ;
 : , here @ ! here @ 4 + here ! ;
-: immediate latest @ 4 + dup @ 2147483648 or swap ! ;
+: immediate latest @ 4 + dup @ 0x80000000 or swap ! ;
 : [ 0 state ! ; immediate
 : ] 1 state ! ;
 : branch rp@ @ dup @ + rp@ ! ;
