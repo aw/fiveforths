@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+  <meta name="generator" content="Jekyll">
+
+  <title>Devlog 33 Storing Numbers</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link href="/atom.xml" type="application/atom+xml" rel="alternate" title="ATOM Feed" />
+</head>
+
+<body>
+  <div id="wrapper">
+    <header>
+  <div>
+    <a href="/">
+    
+      <h1>FiveForths</h1>
+    </a>
+    <p style="text-align: center;">32-bit RISC-V Forth for microcontrollers</p>
+    <div class="header-links">
+      <a href="https://github.com/aw/fiveforths"><h2 class="header-link">Code</h2></a>
+<a href="/archive"><h2 class="header-link">Archive</h2></a>
+<a href="/atom.xml"><h2 class="header-link">RSS</h2></a>
+<a href="https://github.com/aw/fiveforths/archive/refs/heads/master.zip"><h2 class="header-link">Download</h2></a>
+    </div>
+  </div>
+</header>
+    <div class="container">
+      <section id="main_content">
+        <article>
+  <h2>Devlog 33 Storing Numbers</h2>
+  <h1 id="january-05-2023">January 05, 2023</h1>
+
+<ol>
+  <li><a href="#log-33">Log 33</a></li>
+  <li><a href="#storing-numbers">Storing numbers</a></li>
+  <li><a href="#closing-thoughts">Closing thoughts</a></li>
+</ol>
+
+<h3 id="log-33">Log 33</h3>
+
+<p>I know I promised I would get to compile words, but that’s hard so instead in this session i’ll add the ability to store numbers on the stack. Once that works then I’ll get to compiling words hahaha.</p>
+
+<h3 id="storing-numbers">Storing numbers</h3>
+
+<p>The <code class="language-plaintext highlighter-rouge">number</code> routine has already been written in <code class="language-plaintext highlighter-rouge">src/05-internal-functions.s</code>, but we had no code to call it. Unlike most <strong>Forths</strong>, I don’t want to check if it’s a number <em>after</em> checking if it’s a known word. That concept seems strange to me. For starters, we already know what a number will look like. Since we’re only dealing with <code class="language-plaintext highlighter-rouge">base 10</code> numbers for the moment, we can define a number as “a series of digits optionally prefixed by a minus sign”.</p>
+
+<p>In that case, I’d rather we scan for a number <em>before</em> calling <code class="language-plaintext highlighter-rouge">djb2_hash</code>.</p>
+
+<p>One oversight is the registers need to be saved before calling <code class="language-plaintext highlighter-rouge">number</code>, because it clobbers the <code class="language-plaintext highlighter-rouge">a0</code> and <code class="language-plaintext highlighter-rouge">a1</code> registers. I could fix this but I’ll save that for the optimization step. For now, let’s just save/restore them:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    # check if the token is a number
+    mv t5, a0               # save a0 temporarily
+    mv t6, a1               # save a1 temporarily
+    call number             # try to convert the token to an integer
+    bnez a1, push_number    # push the token to the stack if it's a number
+    mv a0, t5               # restore a0
+    mv a1, t6               # restore a1
+</code></pre></div></div>
+
+<p>Here we’re saving the <code class="language-plaintext highlighter-rouge">W</code> and <code class="language-plaintext highlighter-rouge">X</code> working registers to temporary registers, and then calling <code class="language-plaintext highlighter-rouge">number</code>, which will return the result of the operation in <code class="language-plaintext highlighter-rouge">X</code>. If the result is not <code class="language-plaintext highlighter-rouge">0</code> (ex: <code class="language-plaintext highlighter-rouge">1</code>), then we have a valid number so we’ll call <code class="language-plaintext highlighter-rouge">push_number</code> to store the number (stored in <code class="language-plaintext highlighter-rouge">W</code>) on the stack:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>push_number:
+    PUSH a0                 # push the W working register to the top of the data stack
+    j process_token         # jump back to process the next token
+</code></pre></div></div>
+
+<p>This then jumps right back to processing the next token, completely skipping the hash/lookup/compile/execute steps. Let’s try adding numbers and a variable to the stack in the terminal:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>-2147483648 -2147483649 state 4294967296 -100 100 12345 -31234567&lt;Enter&gt;
+</code></pre></div></div>
+
+<p>A few notes: <code class="language-plaintext highlighter-rouge">-2147483649</code> should translate to <code class="language-plaintext highlighter-rouge">2147483647</code> as mentioned in <em>devlog 26</em>. The <code class="language-plaintext highlighter-rouge">state</code> variable will be its address, which is <code class="language-plaintext highlighter-rouge">0x20004cfc</code> (or decimal <code class="language-plaintext highlighter-rouge">536890620</code>), and <code class="language-plaintext highlighter-rouge">4294967296</code> should translate to <code class="language-plaintext highlighter-rouge">0</code>. Let’s check in <code class="language-plaintext highlighter-rouge">GDB</code>, starting at the top of the stack and going down by 32 bytes (4 bytes x 8 values):</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>(gdb) x/8dw 0x20005000-32
+0x20004fe0:	-31234567	12345	100	-100
+0x20004ff0:	0	536890620	2147483647	-2147483648
+</code></pre></div></div>
+
+<p>Great! That works just as expected. Now we can store numbers on the stack, and non-numbers will be hashed and searched for in the dictionary.</p>
+
+<h3 id="closing-thoughts">Closing thoughts</h3>
+
+<p>Well that was easier than expected, let’s just hope I didn’t make a fatal mistake.. but so far it seems to work fine. In the next session I have no other choice but to jump to the <em>compile</em> mode and try to get that working. It might require a review of <code class="language-plaintext highlighter-rouge">COLON</code> and <code class="language-plaintext highlighter-rouge">SEMI</code>… we’ll see.</p>
+
+  <div class="pagination">
+    
+      <a class="prev" href="/devlog-32-fixing-bugs">&laquo; Devlog 32 Fixing Bugs</a>
+    
+    
+      <a class="next" href="/devlog-34-compiling-words">Devlog 34 Compiling Words &raquo;</a>
+    
+  </div>
+</article>
+      </section>
+    </div>
+  </div>
+
+   <footer>
+  <span>Copyright (c) 2021~ <a href="https://a1w.ca">Alexander Williams</a> and licensed under the permissive open source <a href="https://opensource.org/licenses/MIT">MIT</a> license.
+  </span>
+</footer>
+
+</body>
+
+</html>

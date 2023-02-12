@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+  <meta name="generator" content="Jekyll">
+
+  <title>Devlog 34 Compiling Words</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link href="/atom.xml" type="application/atom+xml" rel="alternate" title="ATOM Feed" />
+</head>
+
+<body>
+  <div id="wrapper">
+    <header>
+  <div>
+    <a href="/">
+    
+      <h1>FiveForths</h1>
+    </a>
+    <p style="text-align: center;">32-bit RISC-V Forth for microcontrollers</p>
+    <div class="header-links">
+      <a href="https://github.com/aw/fiveforths"><h2 class="header-link">Code</h2></a>
+<a href="/archive"><h2 class="header-link">Archive</h2></a>
+<a href="/atom.xml"><h2 class="header-link">RSS</h2></a>
+<a href="https://github.com/aw/fiveforths/archive/refs/heads/master.zip"><h2 class="header-link">Download</h2></a>
+    </div>
+  </div>
+</header>
+    <div class="container">
+      <section id="main_content">
+        <article>
+  <h2>Devlog 34 Compiling Words</h2>
+  <h1 id="january-06">January 06</h1>
+
+<ol>
+  <li><a href="#log-34">Log 34</a></li>
+  <li><a href="#printing-strings">Printing strings</a></li>
+  <li><a href="#rebooting-the-mcu">Rebooting the MCU</a></li>
+  <li><a href="#compiling-words">Compiling words</a></li>
+  <li><a href="#closing-thoughts">Closing thoughts</a></li>
+</ol>
+
+<h3 id="log-34">Log 34</h3>
+
+<p>In this session I will work on compiling words, but before that I want to add 2 new features to my Forth: <em>printing strings</em> and <em>rebooting the mcu</em>.</p>
+
+<h3 id="printing-strings">Printing strings</h3>
+
+<p>The previous approach to printing strings over the UART was to repeat the same 2 lines of code for every character. To print ` ok\n` we would write this:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code> ok:
+    li a0, CHAR_SPACE
+    call uart_put
+    li a0, 'o'
+    call uart_put
+    li a0, 'k'
+    call uart_put
+    li a0, CHAR_NEWLINE
+    call uart_put
+</code></pre></div></div>
+
+<p>This works fine for short strings, but it’s quite bothersome and ugly for longer strings.</p>
+
+<p>Here’s my short implementation of a UART “print” function:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>uart_print:
+    mv s3, ra                   # save the return address
+uart_print_loop:
+    beq a1, a2, uart_print_done # done if we've printed all characters
+    lbu a0, 0(a1)               # load 1 character from the message string
+    call uart_put
+    addi a1, a1, 1              # increment the address by 1
+    j uart_print_loop           # loop to print the next message
+uart_print_done:
+    mv ra, s3                   # restore the return address
+    ret
+</code></pre></div></div>
+
+<p>It accepts 2 arguments:</p>
+
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">a1</code> which contains the memory address of the start of a string (I’ll show an example later).</li>
+  <li><code class="language-plaintext highlighter-rouge">a2</code> which contains the address of the string + its length.</li>
+</ul>
+
+<p>The <code class="language-plaintext highlighter-rouge">uart_print</code> starts by saving the <code class="language-plaintext highlighter-rouge">ra</code> register and ends by restoring it. We do this because the <code class="language-plaintext highlighter-rouge">call uart_put</code> would otherwise clobber <code class="language-plaintext highlighter-rouge">ra</code> and it would be unable to return after printing.</p>
+
+<p>The <code class="language-plaintext highlighter-rouge">uart_print_loop</code> simply loops over each character in the string, printing a character at each iteration. It increments the string’s address (<code class="language-plaintext highlighter-rouge">a1</code>) until it’s the same as <code class="language-plaintext highlighter-rouge">a2</code>.</p>
+
+<p>Here’s how we would use it instead of the above <code class="language-plaintext highlighter-rouge">ok</code> function:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ok:
+    la a1, msg_ok       # load string message
+    addi a2, a1, 6      # load string length
+    call uart_print     # call uart print function
+</code></pre></div></div>
+
+<p>And we could define the <code class="language-plaintext highlighter-rouge">msg_ok</code> string like this:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>msg_ok: .ascii "   ok\n"
+</code></pre></div></div>
+
+<p>Note the <code class="language-plaintext highlighter-rouge">.ascii</code> string is <em>NOT</em> null terminated, and it must be aligned to 2 bytes. In other words a 3 or 5 byte string would not work.</p>
+
+<p>Let’s do something similar to <code class="language-plaintext highlighter-rouge">error</code>:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>error:
+    la a1, msg_error    # load string message
+    addi a2, a1, 4      # load string length
+    call uart_print     # call uart print function
+</code></pre></div></div>
+
+<p>And define the <code class="language-plaintext highlighter-rouge">msg_error</code> like this:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>msg_error: .ascii "  ?\n"
+</code></pre></div></div>
+
+<h3 id="rebooting-the-mcu">Rebooting the MCU</h3>
+
+<p>I often find myself wanting to test a <em>clean slate</em> of the Forth, without physically resetting the device (which requires restarting openocd and gdb). So I decided to add a new primitive called <code class="language-plaintext highlighter-rouge">reboot</code>, which jumps directly to the <code class="language-plaintext highlighter-rouge">_start</code> initialization procedure:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># reboot ( -- )         # Reboot the entire system and initialize memory
+defcode "reboot", 0x06266b70, REBOOT, NULL
+    j reboot            # jump to reboot
+</code></pre></div></div>
+
+<p>I then had to modify <code class="language-plaintext highlighter-rouge">FETCH</code> to link to <code class="language-plaintext highlighter-rouge">REBOOT</code> instead of <code class="language-plaintext highlighter-rouge">NULL</code>:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>-defcode "@", 0x0102b5e5, FETCH, NULL
++defcode "@", 0x0102b5e5, FETCH, REBOOT
+</code></pre></div></div>
+
+<p>Now let’s define the <code class="language-plaintext highlighter-rouge">reboot</code> function:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>reboot:
+    la a1, msg_reboot   # load string message
+    addi a2, a1, 12     # load string length
+    call uart_print     # call uart print function
+    j _start            # reboot when print returns
+</code></pre></div></div>
+
+<p>It’s pretty much the same as <code class="language-plaintext highlighter-rouge">ok</code> and <code class="language-plaintext highlighter-rouge">error</code>, with a different string message and different jump to address. Here’s the message:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>msg_reboot: .ascii "  rebooting\n"
+</code></pre></div></div>
+
+<p>So now typing <code class="language-plaintext highlighter-rouge">reboot&lt;Enter&gt;</code> in the terminal will display the string <code class="language-plaintext highlighter-rouge">rebooting</code> and everything will be reset as if we first booted the device. Of course I realize this might be problematic once interrupts are enabled, but I think by then I’ll be able to remove this primitive and functionality.</p>
+
+<h3 id="compiling-words">Compiling words</h3>
+
+<p>Now the final missing element of this <strong>Forth</strong>, <em>compiling words</em>!!</p>
+
+<p>The first change is to fix some minor issues in our macros. In 3 macros we’re decrementing the <code class="language-plaintext highlighter-rouge">sp</code> stack pointer by 1 CELL <em>before</em> performing an operation, which is fine except when that operation involves the <code class="language-plaintext highlighter-rouge">sp</code> pointer. Let’s change the <code class="language-plaintext highlighter-rouge">PUSH</code> macro first, and I’ll explain the difference afterwards:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code> .macro PUSH reg
++    sw \reg, -CELL(sp)  # store the value in the register to the top of the DSP
+     addi sp, sp, -CELL  # move the DSP down by 1 cell
+-    sw \reg, 0(sp)      # store the value in the register to the top of the DSP
+ .endm
+</code></pre></div></div>
+
+<p>Here we moved the <code class="language-plaintext highlighter-rouge">sw</code> instruction so it’s performed first, before decrementing the pointer. But we’re also storing it at the <code class="language-plaintext highlighter-rouge">-4</code> offset. This was necessary for something like <code class="language-plaintext highlighter-rouge">PUSH sp</code> to work, where we want to push the current <code class="language-plaintext highlighter-rouge">sp</code> address not the next address (<code class="language-plaintext highlighter-rouge">sp - 4</code>).</p>
+
+<p>We’ll make a similar change to <code class="language-plaintext highlighter-rouge">PUSHRSP</code>:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code> .macro PUSHRSP reg
++    sw \reg, -CELL(s2)  # store value from register into RSP
+     addi s2, s2, -CELL  # decrement RSP by 1 cell
+-    sw \reg, 0(s2)      # store value from register into RSP
+ .endm
+</code></pre></div></div>
+
+<p>And finally we’ll also modify <code class="language-plaintext highlighter-rouge">PUSHVAR</code> to load the register and then store it in <code class="language-plaintext highlighter-rouge">sp - 4</code> before moving the <code class="language-plaintext highlighter-rouge">sp</code> pointer down by 1 CELL.</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code> .macro PUSHVAR var
+-    addi sp, sp, -CELL  # move the DSP down by 1 cell
+     li t0, \var         # load variable into temporary
+-    sw t0, 0(sp)        # store the variable value to the top of the DSP
++    sw t0, -CELL(sp)    # store the variable value to the top of the DSP
++    addi sp, sp, -CELL  # move the DSP down by 1 cell
+ .endm
+</code></pre></div></div>
+
+<p>In the <code class="language-plaintext highlighter-rouge">COLON</code> primitive (inner interpreter), we need to do the <em>exact same thing</em> as in <code class="language-plaintext highlighter-rouge">process_token</code> (outer interpreter) before and after calling <code class="language-plaintext highlighter-rouge">token</code>, so let’s replace the existing code:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code> defcode ":", 0x0102b5df, COLON, LATEST
+-    li a0, TIB          # load TIB into W
+-    li t3, TOIN         # load the TOIN variable into unused temporary register
+-    lw a1, 0(t3)        # load TOIN address value into X working register
++    li t3, TOIN         # load TOIN variable into unused temporary register
++    lw a0, 0(t3)        # load TOIN address value into temporary
+     call token          # read the token
+
++    # move TOIN
++    add t0, a0, a1      # add the size of the token to TOIN
++    sw t0, 0(t3)        # move TOIN to process the next word in the TIB
++
+     # bounds checks on token size
+-    beqz a1, error      # error if token size is 0
++    beqz a1, ok         # ok if token size is 0
+     li t0, 32           # load max token size  (2^5 = 32) in temporary
+     bgtu a1, t0, error  # error if token size is greater than 32
+
+-    # store the word then hash it
+-    sw a0, 0(t3)        # store new address into TOIN variable
+     call djb2_hash      # hash the token
+</code></pre></div></div>
+
+<p>Now <code class="language-plaintext highlighter-rouge">COLON</code>’s first few lines are identical to <code class="language-plaintext highlighter-rouge">process_token</code>.</p>
+
+<p>We’ll also need to fix a bug I discovered when storing the <code class="language-plaintext highlighter-rouge">code_EXIT</code> address at the end of a word:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>-    sw t1, 0(t0)        # store the codeword address into HERE
++    sw t1, 0(t2)        # store the codeword address into HERE
+</code></pre></div></div>
+
+<p>The actual <code class="language-plaintext highlighter-rouge">HERE</code> address was stored in <code class="language-plaintext highlighter-rouge">t2</code> but I accidentally used <code class="language-plaintext highlighter-rouge">t0</code> which means <code class="language-plaintext highlighter-rouge">EXIT</code> would not be written to the correct memory location.</p>
+
+<p>Now let’s look at our <code class="language-plaintext highlighter-rouge">compile</code> function, called from the <code class="language-plaintext highlighter-rouge">process_token</code> (outer interpreter). The first step is to find the codeword address, which is 2 CELLs down:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>compile:
+    addi t0, a1, 2*CELL     # increment the address of the found word by 8 to get the codeword address
+</code></pre></div></div>
+
+<p>Then we’ll load <code class="language-plaintext highlighter-rouge">HERE</code> into a temporary, and store the codeword in there:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    li t1, HERE             # load HERE variable into temporary
+    lw t2, 0(t1)            # load HERE value into temporary
+    sw t0, 0(t2)            # write the address of the codeword to the current definition
+</code></pre></div></div>
+
+<p>Afterwards we can increment <code class="language-plaintext highlighter-rouge">HERE</code> by 1 CELL and store its value back, before jumping back to process the next token:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    addi t0, t2, CELL       # increment HERE by 4
+    sw t0, 0(t1)            # store new HERE address
+compile_done:
+    j process_token
+</code></pre></div></div>
+
+<p><strong>That’s it!</strong></p>
+
+<p>At least.. I think that’s it. Let’s try to compile a word in the terminal:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>: dup sp@ @ ;&lt;Enter&gt;  ok
+</code></pre></div></div>
+
+<p>So far so good, maybe? Let’s check the user dictionary with <code class="language-plaintext highlighter-rouge">GDB</code>. This should store 6 values in memory starting from <code class="language-plaintext highlighter-rouge">0x20000000</code>, three values for <code class="language-plaintext highlighter-rouge">dup</code> (link, hash, codeword), one address for <code class="language-plaintext highlighter-rouge">sp@</code> (<code class="language-plaintext highlighter-rouge">DSPFETCH</code>), one address for <code class="language-plaintext highlighter-rouge">@</code> (<code class="language-plaintext highlighter-rouge">FETCH</code>) and one address for <code class="language-plaintext highlighter-rouge">exit</code> (<code class="language-plaintext highlighter-rouge">code_EXIT</code>):</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>(gdb) x/6xw 0x20000000
+0x20000000:	0x08000650	0x03886bce	0x080003f4	0x080005b0
+0x20000010:	0x08000598	0x080005ec
+</code></pre></div></div>
+
+<p>Now let’s look at each value:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>(gdb) x/xw 0x08000650
+0x8000650 &lt;word_SEMI&gt;:	0x08000644
+</code></pre></div></div>
+
+<p>That’s our link to the previous word. Then <code class="language-plaintext highlighter-rouge">0x03886bce</code> is the hash of the word <code class="language-plaintext highlighter-rouge">dup</code>.</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>(gdb) x/xw 0x080003f4
+0x80003f4 &lt;.addr&gt;:	0x080003e4
+(gdb) x/xw 0x080003e4
+0x80003e4 &lt;docol&gt;:	0xfe992e23
+</code></pre></div></div>
+
+<p>Next we have the address of <code class="language-plaintext highlighter-rouge">.addr</code> which points to <code class="language-plaintext highlighter-rouge">docol</code>. This is where I’m still a bit confused, and it might be totally wrong.</p>
+
+<p>Next let’s examine the remaining 3 values:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>(gdb) x/xw 0x080005b0
+0x80005b0 &lt;code_DSPFETCH&gt;:	0x08000284
+(gdb) x/xw 0x08000598
+0x8000598 &lt;code_FETCH&gt;:	0x08000264
+(gdb) x/xw 0x080005ec
+0x80005ec &lt;code_EXIT&gt;:	0x080002d4
+</code></pre></div></div>
+
+<p>All that looks pretty good to me. Let’s store a value in the stack, and then use <code class="language-plaintext highlighter-rouge">dup</code> to duplicate it on the stack (which is what <code class="language-plaintext highlighter-rouge">sp@ @</code> does):</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>456 dup&lt;Enter&gt;
+</code></pre></div></div>
+
+<p>…crash</p>
+
+<p>Well… I guess that doesn’t work. The word was definitely <em>compiled</em> and stored in memory, but there’s clearly something wrong in there. I have a feeling this might be related to the compiled <code class="language-plaintext highlighter-rouge">.addr -&gt; docol</code> address, but I’m not sure.</p>
+
+<h3 id="closing-thoughts">Closing thoughts</h3>
+
+<p>In the next session I’ll manually step through the execution of my newly defined <code class="language-plaintext highlighter-rouge">dup</code> word, and see if I can find the problem. Hopefully I’ll be able to fix this in the next session, and then I’ll have a fully functional <strong>Forth</strong>. Yay!</p>
+
+  <div class="pagination">
+    
+      <a class="prev" href="/devlog-33-storing-numbers">&laquo; Devlog 33 Storing Numbers</a>
+    
+    
+      <a class="next" href="/devlog-35-compiling-words-pt2">Devlog 35 Compiling Words Pt2 &raquo;</a>
+    
+  </div>
+</article>
+      </section>
+    </div>
+  </div>
+
+   <footer>
+  <span>Copyright (c) 2021~ <a href="https://a1w.ca">Alexander Williams</a> and licensed under the permissive open source <a href="https://opensource.org/licenses/MIT">MIT</a> license.
+  </span>
+</footer>
+
+</body>
+
+</html>

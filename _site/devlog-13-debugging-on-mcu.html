@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+  <meta name="generator" content="Jekyll">
+
+  <title>Devlog 13 Debugging On Mcu</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link href="/atom.xml" type="application/atom+xml" rel="alternate" title="ATOM Feed" />
+</head>
+
+<body>
+  <div id="wrapper">
+    <header>
+  <div>
+    <a href="/">
+    
+      <h1>FiveForths</h1>
+    </a>
+    <p style="text-align: center;">32-bit RISC-V Forth for microcontrollers</p>
+    <div class="header-links">
+      <a href="https://github.com/aw/fiveforths"><h2 class="header-link">Code</h2></a>
+<a href="/archive"><h2 class="header-link">Archive</h2></a>
+<a href="/atom.xml"><h2 class="header-link">RSS</h2></a>
+<a href="https://github.com/aw/fiveforths/archive/refs/heads/master.zip"><h2 class="header-link">Download</h2></a>
+    </div>
+  </div>
+</header>
+    <div class="container">
+      <section id="main_content">
+        <article>
+  <h2>Devlog 13 Debugging On Mcu</h2>
+  <h1 id="december-4-2022">December 4, 2022</h1>
+
+<ol>
+  <li><a href="#log-13">Log 13</a></li>
+  <li><a href="#debugging-on-mcu">Debugging on MCU</a></li>
+  <li><a href="#closing-thoughts">Closing thoughts</a></li>
+</ol>
+
+<h2 id="log-13">Log 13</h2>
+
+<p>In this session I’ll focus on debugging directly on the MCU with <code class="language-plaintext highlighter-rouge">gdb</code> and <code class="language-plaintext highlighter-rouge">openocd</code>.</p>
+
+<h3 id="debugging-on-mcu">Debugging on MCU</h3>
+
+<p>I started this session by wiring my <a href="https://longan.sipeed.com/en/">Longan Nano</a> to my <em>FTDI FT232RL</em> USB device. The device itself has all the pins broken out, which is very useful because it can now be used as a <em>JTAG</em> debugger via <a href="https://openocd.org">openocd</a></p>
+
+<p>Here’s the pinout I used:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th style="text-align: right">FT232R / FT232RL pins</th>
+      <th style="text-align: left">Longan Nano pins</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td style="text-align: right">RXD</td>
+      <td style="text-align: left">JTDI</td>
+    </tr>
+    <tr>
+      <td style="text-align: right">TXD</td>
+      <td style="text-align: left">JTCK</td>
+    </tr>
+    <tr>
+      <td style="text-align: right">RTS</td>
+      <td style="text-align: left">JTDO</td>
+    </tr>
+    <tr>
+      <td style="text-align: right">CTS</td>
+      <td style="text-align: left">JTMS</td>
+    </tr>
+    <tr>
+      <td style="text-align: right">3.3V</td>
+      <td style="text-align: left">3.3V</td>
+    </tr>
+    <tr>
+      <td style="text-align: right">GND</td>
+      <td style="text-align: left">GND</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>The best part of this approach, compared to the USB-C <code class="language-plaintext highlighter-rouge">dfu</code> upload, is it’s not necessary to do the whole 2-finger 2-button “BOOT0/RESET” dance to upload a new firmware. You can upload a new firmware with just 1 command (<code class="language-plaintext highlighter-rouge">load</code> in gdb). And we get the added bonus that we can fully debug and inspect the MCU as it’s running.</p>
+
+<p>Next, you’ll need to ensure you have <a href="https://github.com/riscv-mcu/riscv-openocd">openocd installed</a> (compiled from scratch to support the <code class="language-plaintext highlighter-rouge">GD32VF103</code> MCU), and run it using the two scripts included in this repository:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>/path/to/openocd -f ft232r.cfg -f openocd.cfg
+</code></pre></div></div>
+
+<p>The output should look similar to this:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Open On-Chip Debugger 0.11.0+dev-01861-g6edf98db7-dirty (2021-10-27-18:59)
+Licensed under GNU GPL v2
+For bug reports, read
+	http://openocd.org/doc/doxygen/bugs.html
+Info : only one transport option; autoselect 'jtag'
+adapter speed: 1000 kHz
+
+Info : clock speed 1000 kHz
+Info : JTAG tap: riscv.cpu tap/device found: 0x1000563d (mfg: 0x31e (Andes Technology Corporation), part: 0x0005, ver: 0x1)
+Warn : JTAG tap: riscv.cpu       UNEXPECTED: 0x1000563d (mfg: 0x31e (Andes Technology Corporation), part: 0x0005, ver: 0x1)
+Error: JTAG tap: riscv.cpu  expected 1 of 1: 0x1e200a6d (mfg: 0x536 (Nuclei System Technology Co Ltd), part: 0xe200, ver: 0x1)
+Info : JTAG tap: auto0.tap tap/device found: 0x790007a3 (mfg: 0x3d1 (GigaDevice Semiconductor (Beijing) Inc), part: 0x9000, ver: 0x7)
+Error: Trying to use configured scan chain anyway...
+Warn : AUTO auto0.tap - use "jtag newtap auto0 tap -irlen 5 -expected-id 0x790007a3"
+Warn : Bypassing JTAG setup events due to errors
+Info : datacount=4 progbufsize=2
+Info : Examined RISC-V core; found 1 harts
+Info :  hart 0: XLEN=32, misa=0x40901105
+Info : starting gdb server for riscv.cpu on 3333
+Info : Listening on port 3333 for gdb connections
+Info : Listening on port 6666 for tcl connections
+Info : Listening on port 4444 for telnet connections
+</code></pre></div></div>
+
+<p>I also wanted to setup a <code class="language-plaintext highlighter-rouge">debug.gdb</code> file which contains commands to run whenever I want to enter a debug session:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>target extended-remote :3333
+
+# print demangled symbols
+set print asm-demangle on
+
+set confirm off
+
+# set backtrace limit to not have infinite backtrace loops
+set backtrace limit 32
+
+monitor reset halt
+load
+break _start
+break _continue
+</code></pre></div></div>
+
+<p>It can be used like this:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>/path/to/riscv64-unknown-elf-gdb -command=debug.gdb fiveforths.elf
+</code></pre></div></div>
+
+<p>This will connect to the <code class="language-plaintext highlighter-rouge">openocd</code> session, reset the MCU, upload the latest firmware file (<code class="language-plaintext highlighter-rouge">fiveforths.elf</code>), and set two breakpoints.</p>
+
+<p>From there you can continue to run, inspect registers, or single-step through the program:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>(gdb) c
+Continuing.
+
+Breakpoint 1, _start () at fiveforths.s:149
+149	    la sp, __stacktop   # initialize DSP register
+
+(gdb) info registers
+ra             0x80002f0	0x80002f0 &lt;body_COLON+36&gt;
+sp             0x20005000	0x20005000
+&lt;/snip&gt;
+
+(gdb) si
+0x08000048 in _start () at fiveforths.s:149
+149	    la sp, __stacktop   # initialize DSP register
+</code></pre></div></div>
+
+<h3 id="closing-thoughts">Closing thoughts</h3>
+
+<p>That’s all for this session. I kept it short because I just wanted to validate and ensure this thing actually runs on the Longan Nano (it does). In the next session I’ll jump straight to the I/O functions and interpreter.</p>
+
+  <div class="pagination">
+    
+      <a class="prev" href="/devlog-12-completing-semi">&laquo; Devlog 12 Completing Semi</a>
+    
+    
+      <a class="next" href="/devlog-14-initializing-uart">Devlog 14 Initializing Uart &raquo;</a>
+    
+  </div>
+</article>
+      </section>
+    </div>
+  </div>
+
+   <footer>
+  <span>Copyright (c) 2021~ <a href="https://a1w.ca">Alexander Williams</a> and licensed under the permissive open source <a href="https://opensource.org/licenses/MIT">MIT</a> license.
+  </span>
+</footer>
+
+</body>
+
+</html>

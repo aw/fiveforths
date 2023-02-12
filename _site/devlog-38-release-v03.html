@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+  <meta name="generator" content="Jekyll">
+
+  <title>Devlog 38 Release V03</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link href="/atom.xml" type="application/atom+xml" rel="alternate" title="ATOM Feed" />
+</head>
+
+<body>
+  <div id="wrapper">
+    <header>
+  <div>
+    <a href="/">
+    
+      <h1>FiveForths</h1>
+    </a>
+    <p style="text-align: center;">32-bit RISC-V Forth for microcontrollers</p>
+    <div class="header-links">
+      <a href="https://github.com/aw/fiveforths"><h2 class="header-link">Code</h2></a>
+<a href="/archive"><h2 class="header-link">Archive</h2></a>
+<a href="/atom.xml"><h2 class="header-link">RSS</h2></a>
+<a href="https://github.com/aw/fiveforths/archive/refs/heads/master.zip"><h2 class="header-link">Download</h2></a>
+    </div>
+  </div>
+</header>
+    <div class="container">
+      <section id="main_content">
+        <article>
+  <h2>Devlog 38 Release V03</h2>
+  <h1 id="january-19">January 19</h1>
+
+<ol>
+  <li><a href="#log-38">Log 38</a></li>
+  <li><a href="#release-v03">Release v03</a></li>
+  <li><a href="#bug-fixes">Bug fixes</a></li>
+  <li><a href="#enhancements">Enhancements</a></li>
+  <li><a href="#closing-thoughts">Closing thoughts</a></li>
+</ol>
+
+<h3 id="log-38">Log 38</h3>
+
+<p>In this session I’ll discuss the bugs I fixed, some enhancements, and documentation for <em>FiveForths</em>.</p>
+
+<h3 id="release-v03">Release v03</h3>
+
+<p>In <a href="https://github.com/aw/fiveforths/releases/tag/v0.3">release v0.3</a> I made quite a few changes, most importantly is regarding documentation, so let’s start there.</p>
+
+<p>A new sub-directory was created, called <a href="https://github.com/aw/fiveforths/tree/master/docs">docs/</a> which contains, you guessed it, documentation! It’s using a system called <a href="https://diataxis.fr/">Diátaxis</a> which was previously the <a href="https://documentation.divio.com/">Divio</a> docs, which I believe were created by <a href="https://diataxis.fr/contact/">Daniele Procida</a>. I’ve used it in <a href="https://github.com/aw/picolisp-posixmq/tree/master/docs">previous</a> <a href="https://github.com/aw/hw-micro3d/tree/master/docs">projects</a> over the last few years and have grown quite fond of it.</p>
+
+<p>The major goal of those documents is to allow people to learn about <em>FiveForths</em>, to write their own <em>Forth</em> code and maybe even contribute some <em>Assembly</em> code. I’ll continue adding to it as needed, but please feel free to contribute any changes which may help (even typos in the docs).</p>
+
+<p>The next important changes were some bug fixes. I opened 4 issues on GitHub and <a href="https://github.com/aw/fiveforths/pull/15/files">1 pull request</a> prior to rebase-merging into the <em>master</em> branch.</p>
+
+<h3 id="bug-fixes">Bug fixes</h3>
+
+<p>The <code class="language-plaintext highlighter-rouge">STORE</code> bug in <a href="https://github.com/aw/fiveforths/issues/14">issue 14</a> was a real simple one. The <code class="language-plaintext highlighter-rouge">!</code> (<code class="language-plaintext highlighter-rouge">STORE</code>) primitive should store <code class="language-plaintext highlighter-rouge">x</code> in <code class="language-plaintext highlighter-rouge">addr</code>. I’m not sure how I overlooked it, but I somehow managed to reverse the order and found myself storing <code class="language-plaintext highlighter-rouge">addr</code> in <code class="language-plaintext highlighter-rouge">x</code>. I swear I tested it, so I reviewed <a href="https://fiveforths.a1w.ca/devlog-32-fixing-bugs#fixing-primitives">devlog 32</a> and I realize my mistake. The code:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>here @ latest @ !&lt;Enter&gt;
+</code></pre></div></div>
+
+<p>It had the arguments backwards! That command would normally try to store <code class="language-plaintext highlighter-rouge">HERE</code> into <code class="language-plaintext highlighter-rouge">LATEST</code> (in a working <em>Forth</em>), but since it was reversed in my code (and in the example), it actually <strong>worked</strong>. It ended up storing <code class="language-plaintext highlighter-rouge">LATEST</code> in <code class="language-plaintext highlighter-rouge">HERE</code> and worked perfectly. Oops!</p>
+
+<p>Here’s the fixed code in the <code class="language-plaintext highlighter-rouge">STORE</code> primitive:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>-    lw t0, 0(sp)        # load the DSP value (x) into temporary
+-    lw t1, CELL(sp)     # load the DSP value (addr) into temporary
++    lw t1, 0(sp)        # load the DSP value (addr) into temporary
++    lw t0, CELL(sp)     # load the DSP value (x) into temporary
+</code></pre></div></div>
+
+<p>The <code class="language-plaintext highlighter-rouge">TOIN</code> bug in <a href="https://github.com/aw/fiveforths/issues/13">issue 13</a> was a bit more complex. In fact it didn’t affect the way <em>FiveForths</em> worked, as it only affected the result from using <code class="language-plaintext highlighter-rouge">&gt;in</code> in <em>Forth</em> code. With <code class="language-plaintext highlighter-rouge">&gt;in</code> it should actually store the buffer position in the <code class="language-plaintext highlighter-rouge">TIB</code>, but in my case I was storing a memory address in <code class="language-plaintext highlighter-rouge">TOIN</code>, so using <code class="language-plaintext highlighter-rouge">&gt;in</code> correctly would require one to subtract the value from <code class="language-plaintext highlighter-rouge">tib</code> in order to obtain the <em>real</em> <code class="language-plaintext highlighter-rouge">&gt;in</code>.</p>
+
+<p>I fixed this without changing too much code. The main thing I realized was that my usage of <code class="language-plaintext highlighter-rouge">TOIN</code> within the assembly code was fine. I just needed to make sure the value it stored and loaded to/from memory was not an address.</p>
+
+<p>The first change was to initialize <code class="language-plaintext highlighter-rouge">TOIN</code> to zero rather than a memory address:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>-    sw t0, 0(t1)        # initialize TOIN variable to contain TIB start address
++    sw zero, 0(t1)      # initialize TOIN variable to contain zero
+</code></pre></div></div>
+
+<p>Next, when <em>loading</em> <code class="language-plaintext highlighter-rouge">TOIN</code>, we need to add the address of <code class="language-plaintext highlighter-rouge">TIB</code> so the rest of the code can function as usual. Let’s have a look at the interpreter:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>-    lw a1, 0(t3)                                # load TOIN address value into X working register
++    lw a1, 0(t3)                                # load TOIN value into X working register
++    add a1, a1, t2                              # add TIB to TOIN to get the start address of TOIN
+</code></pre></div></div>
+
+<p>Then, when <em>storing</em> <code class="language-plaintext highlighter-rouge">TOIN</code>, we need to subtract the address of <code class="language-plaintext highlighter-rouge">TIB</code>:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>+    li t2, TIB              # load TIB memory address
+     add t0, a0, a1          # add the size of the token to TOIN
++    sub t0, t0, t2          # subtract the address of TOIN from TIB to get the new size of TOIN
+     sw t0, 0(t3)            # move TOIN to process the next word in the TIB
+</code></pre></div></div>
+
+<p>See? Here we load <code class="language-plaintext highlighter-rouge">TIB</code> into a temporary because it wasn’t available elsewhere, so we add the size of the token, then we subtract the value of <code class="language-plaintext highlighter-rouge">TIB</code> to obtain the real size of <code class="language-plaintext highlighter-rouge">TOIN</code> before storing it back into the variable. That’s a mouthful but it works and was super easy to implement and validate. I made the same change in <code class="language-plaintext highlighter-rouge">COLON</code> (which also manipulates <code class="language-plaintext highlighter-rouge">TOIN</code>) and we’re good to go.</p>
+
+<h3 id="enhancements">Enhancements</h3>
+
+<p>Two of the enhancements I focused on were to ensure the user dictionary and data/return stacks don’t overflow (or underflow). We want to make sure our code stays within the memory boundaries assigned to them.</p>
+
+<p>Another enhancement was regarding error handling, and I’m quite happy about this one. In <em>sectorforth</em> there’s practically no error handling and many <em>Forths</em> are somewhat cryptic about what’s going on. We want to know why something went wrong, so let’s add some proper error messages.</p>
+
+<p>I noticed the code for <code class="language-plaintext highlighter-rouge">error, ok, reboot</code> was quite similar, and I wanted to add other types of messages, so the first step was to create a new macro to print error messages:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># print a message
+.macro print_error name, size, jump
+    .balign CELL
+  err_\name :
+    la a1, msg_\name    # load string message
+    addi a2, a1, \size  # load string length
+    call uart_print     # call uart print function
+    j \jump             # jump when print returns
+.endm
+</code></pre></div></div>
+
+<p>It’s fairly simple, all it does is generate a label (ex: <code class="language-plaintext highlighter-rouge">err_error</code>), code for loading a string message (ex: under the label <code class="language-plaintext highlighter-rouge">msg_error</code>), printing the message, and then jumping to a label specified as an argument.</p>
+
+<p>It would be used like this:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>print_error error, 4, reset
+msg_error: .ascii "  ?\n"
+</code></pre></div></div>
+
+<p>When there’s a jump to the label <code class="language-plaintext highlighter-rouge">err_error</code>, it will load the ASCII error message stored in <code class="language-plaintext highlighter-rouge">msg_error</code>, add its size (<code class="language-plaintext highlighter-rouge">4</code>), print it to the UART, then jump to the <code class="language-plaintext highlighter-rouge">reset</code> label.</p>
+
+<p>I defined similar code for other messages as well:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>print_error error, 4, reset
+print_error ok, 6, tib_init
+print_error reboot, 16, _start
+print_error tib, 14, reset
+print_error mem, 16, reset
+print_error token, 14, reset
+print_error underflow, 20, reset
+print_error overflow, 20, reset
+
+msg_error: .ascii "  ?\n"
+msg_ok: .ascii "   ok\n"
+msg_reboot: .ascii "   ok rebooting\n"
+msg_tib: .ascii "   ? tib full\n"
+msg_mem: .ascii "  ? memory full\n"
+msg_token: .ascii "  ? big token\n"
+msg_underflow: .ascii "  ? stack underflow\n"
+msg_overflow: .ascii "   ? stack overflow\n"
+</code></pre></div></div>
+
+<p>I think that’s slightly more useful than just <code class="language-plaintext highlighter-rouge">?</code> and <code class="language-plaintext highlighter-rouge">ok</code> haha.</p>
+
+<p>The new messages such as <code class="language-plaintext highlighter-rouge">msg_mem</code> and <code class="language-plaintext highlighter-rouge">msg_overflow</code> are for the code which handles the bounds checks on memory and stacks.</p>
+
+<p>I won’t go into full detail of the changes required to perform bounds checks, but I will highlight a few things.</p>
+
+<p>First, I defined yet another new macro, this one is for handling errors where the values stored in memory are incomplete. For example during a word lookup, if we’re in <em>compile</em> mode, we absolutely must not leave the memory in a half-baked state. That means restoring <code class="language-plaintext highlighter-rouge">HERE</code> and <code class="language-plaintext highlighter-rouge">LATEST</code>. The same rule applies when <code class="language-plaintext highlighter-rouge">;</code> (<code class="language-plaintext highlighter-rouge">EXIT</code>) is encountered, if there isn’t enough memory to store that word, then the entire word’s definition must be rolled back. Here’s the new macro to handle that:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># restore HERE and LATEST variables
+.macro restorevars reg
+    # update HERE
+    li t0, HERE         # load HERE variable into temporary
+    sw \reg, 0(t0)      # store the address of LATEST back into HERE
+
+    # update LATEST
+    li t0, LATEST       # load LATEST variable into temporary
+    lw t1, 0(\reg)      # load LATEST variable value into temporary
+    sw t1, 0(t0)        # store LATEST word into LATEST variable
+.endm
+</code></pre></div></div>
+
+<p>It’s quite straightforward, it simply stores the provided register value of <code class="language-plaintext highlighter-rouge">LATEST</code> into <code class="language-plaintext highlighter-rouge">HERE</code>, and then it updates <code class="language-plaintext highlighter-rouge">LATEST</code> to contain the previously stored word in <code class="language-plaintext highlighter-rouge">LATEST</code>. It sounds weird to update <code class="language-plaintext highlighter-rouge">LATEST</code> with <code class="language-plaintext highlighter-rouge">LATEST</code> but actually it’s not, it’s just storing the pointer value of <code class="language-plaintext highlighter-rouge">LATEST</code> into <code class="language-plaintext highlighter-rouge">LATEST</code>, which is a different address. Essentially it ends up restoring the old <code class="language-plaintext highlighter-rouge">LATEST</code> and <code class="language-plaintext highlighter-rouge">HERE</code> variables to the previous state.</p>
+
+<p>Another important change regarding memory bounds checking… after restoring the variables and jumping to the <code class="language-plaintext highlighter-rouge">reset</code> handler, I absolutely want to <strong>zerofill</strong> the memory. In fact, I want to do this on every reset (physical or virtual). I don’t like the idea of leaving old values in memory after a soft reset, so some code was added to fully zero out the RAM. Of course I was careful to only reset from the <code class="language-plaintext highlighter-rouge">HERE</code> address, since we don’t want to lose our correctly defined words haha (if yes, then do a <code class="language-plaintext highlighter-rouge">reboot</code> to start from scratch):</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># reset the RAM from the last defined word
+ram_init:
+    li t0, HERE         # load HERE memory address
+    lw t0, 0(t0)        # load HERE value
+    li t1, PAD          # load PAD variable
+ram_zerofill:
+    # initialize the memory cells
+    beq t0, t1,ram_done # loop until counter (HERE) == PAD
+    sw zero, 0(t0)      # zero-fill the memory address
+    addi t0, t0, CELL   # increment counter by 1 CELL
+    j ram_zerofill      # repeat
+ram_done:
+    # continue to tib_init
+</code></pre></div></div>
+
+<p>I guess this code is extremely similar to <code class="language-plaintext highlighter-rouge">tib_init</code>, where it just writes 4 bytes (zeroes) to every memory address from <code class="language-plaintext highlighter-rouge">HERE</code> to <code class="language-plaintext highlighter-rouge">PAD</code> (but it doesn’t touch <code class="language-plaintext highlighter-rouge">PAD</code>). I tested on the <em>Longan Nano</em>’s 20 KBytes and it’s pretty quick even running at 8 MHz haha. I can’t imagine this would be problematic even on a larger microcontroller, but we’ll see.. the <code class="language-plaintext highlighter-rouge">reset</code> only occurs on error anyways (and first boot), so it won’t affect code that’s running fine and error-free.</p>
+
+<p>Finally, for bounds checks on the stacks, I modified some macros and primitives with code similar to this in the <code class="language-plaintext highlighter-rouge">POPRSP</code> macro:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    li t0, RSP_TOP              # load address of top of RSP
+    bge s2, t0, err_underflow   # jump to error handler if stack underflow
+</code></pre></div></div>
+
+<p>The above code performs a stack <em>underflow</em> check on the return stack. All it does is jump to the <code class="language-plaintext highlighter-rouge">err_underflow</code> error handler if the value of the <code class="language-plaintext highlighter-rouge">RSP</code> pointer (<code class="language-plaintext highlighter-rouge">s2</code>) is equal or greater than the value of the <code class="language-plaintext highlighter-rouge">RSP_TOP</code> constant. Both are memory addresses, and if they’re lined up then it should not be possible to perform a <code class="language-plaintext highlighter-rouge">POPRSP</code>. That’s called an <em>underflow</em>.</p>
+
+<p>For the <em>overflow</em> check we can look at the <code class="language-plaintext highlighter-rouge">PUSH</code> macro:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    li t0, RSP_TOP+CELL         # load address of bottom of stack + 1 CELL
+    blt sp, t0, err_overflow    # jump to error handler if stack overflow
+</code></pre></div></div>
+
+<p>This is similar to <code class="language-plaintext highlighter-rouge">POPRSP</code> except it’s using the <code class="language-plaintext highlighter-rouge">RSP_TOP</code> constant + 1 CELL, which is essentially the <em>last</em> available memory cell in the data stack. That value is fine, but anything below it is not. That’s why we’re using the <code class="language-plaintext highlighter-rouge">blt</code> (branch if less than) RISC-V instruction. If there were a <code class="language-plaintext highlighter-rouge">blte</code> instruction (branch if less than or equal) then we could write this instead:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    li t0, RSP_TOP
+</code></pre></div></div>
+
+<p>There might be a simpler way, but I’ll leave that for the optimization stage (soon?).</p>
+
+<p>So back to the over/under flow checks, anywhere the <code class="language-plaintext highlighter-rouge">sp</code> (<code class="language-plaintext highlighter-rouge">DSP</code>) or <code class="language-plaintext highlighter-rouge">s2</code> (<code class="language-plaintext highlighter-rouge">RSP</code>) pointers are manipulated, there will first be a check for a stack overflow or underflow condition. If yes then we’ll print a friendly error message and jump to <code class="language-plaintext highlighter-rouge">reset</code>.</p>
+
+<h3 id="closing-thoughts">Closing thoughts</h3>
+
+<p>I believe this release is quite stable now, but there’s still a few more enhancements I want to make, such as adding the ability to <em>save</em> or <em>load</em> words either from the onboard SD card or from Flash memory. I still need to add the ability to write multi-line word definitions, and the ability to handle hex numbers. However I also want to avoid adding to much to the core <em>Forth</em> (and avoid writing much more low-level RISC-V Assembly).</p>
+
+<p>In the next session I’ll focus on the above enhancements and maybe some code cleanup and optimization.</p>
+
+  <div class="pagination">
+    
+      <a class="prev" href="/devlog-37-a-release-or-two">&laquo; Devlog 37 A Release Or Two</a>
+    
+    
+      <a class="next" href="/devlog-39-release-v04-toggling-leds">Devlog 39 Release V04 Toggling Leds &raquo;</a>
+    
+  </div>
+</article>
+      </section>
+    </div>
+  </div>
+
+   <footer>
+  <span>Copyright (c) 2021~ <a href="https://a1w.ca">Alexander Williams</a> and licensed under the permissive open source <a href="https://opensource.org/licenses/MIT">MIT</a> license.
+  </span>
+</footer>
+
+</body>
+
+</html>

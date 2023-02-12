@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+  <meta name="generator" content="Jekyll">
+
+  <title>Devlog 9 Token Reading</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link href="/atom.xml" type="application/atom+xml" rel="alternate" title="ATOM Feed" />
+</head>
+
+<body>
+  <div id="wrapper">
+    <header>
+  <div>
+    <a href="/">
+    
+      <h1>FiveForths</h1>
+    </a>
+    <p style="text-align: center;">32-bit RISC-V Forth for microcontrollers</p>
+    <div class="header-links">
+      <a href="https://github.com/aw/fiveforths"><h2 class="header-link">Code</h2></a>
+<a href="/archive"><h2 class="header-link">Archive</h2></a>
+<a href="/atom.xml"><h2 class="header-link">RSS</h2></a>
+<a href="https://github.com/aw/fiveforths/archive/refs/heads/master.zip"><h2 class="header-link">Download</h2></a>
+    </div>
+  </div>
+</header>
+    <div class="container">
+      <section id="main_content">
+        <article>
+  <h2>Devlog 9 Token Reading</h2>
+  <h1 id="november-27-2022">November 27, 2022</h1>
+
+<ol>
+  <li><a href="#log-9">Log 9</a></li>
+  <li><a href="#minor-adjustments">Minor adjustments</a></li>
+  <li><a href="#first-look-at-colon">First look at colon</a></li>
+  <li><a href="#reading-the-first-word">Reading the first word</a></li>
+  <li><a href="#closing-thoughts">Closing thoughts</a></li>
+</ol>
+
+<h2 id="log-9">Log 9</h2>
+
+<p>In this session I make some minor code adjustments, and then I’ll make a first attempt at implementing the <code class="language-plaintext highlighter-rouge">COLON</code> primitive.</p>
+
+<h3 id="minor-adjustments">Minor adjustments</h3>
+
+<p>In the <code class="language-plaintext highlighter-rouge">POP</code> macro, I was moving the stack pointer up, and then loading the previous stack pointer into a register from an address offset by -4. This was weird, so I changed it to load it into the register first from an offset of 0 before moving the stack pointer. It’s easier to read this way:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code> .macro POP reg
++    lw \reg, 0(sp)      # load DSP value to temporary
+     addi sp, sp, CELL   # move the DSP up by 1 cell
+-    lw \reg, -CELL(sp)  # load DSP value to temporary
+ .endm
+</code></pre></div></div>
+
+<p>I was doing something equally weird in the <code class="language-plaintext highlighter-rouge">PUSH</code> macro, and adjusted that below:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code> .macro PUSH reg
+-    sw s3, -CELL(sp)    # store the value in the TOS to the top of the DSP
+-    mv s3, \reg         # copy reg to TOS
+-    addi sp, sp, -CELL  # move the DSP down by 1 cell to make room for the TOS
++    addi sp, sp, -CELL  # move the DSP down by 1 cell
++    sw s3, 0(sp)        # store the value in the TOS to the top of the DSP
++    addi s3, \reg, CELL # copy reg+CELL (old sp) to TOS
+ .endm
+</code></pre></div></div>
+
+<p>You can see the order went from: <code class="language-plaintext highlighter-rouge">store -&gt; copy -&gt; move</code> to <code class="language-plaintext highlighter-rouge">move -&gt; store -&gt; copy</code>. Now there’s no negative offset and it’s much easier to follow.</p>
+
+<h3 id="first-look-at-colon">First look at colon</h3>
+
+<p>OK so now we’re getting into a bit more meaty Assembly. The <code class="language-plaintext highlighter-rouge">COLON</code> primitive is what’s used to define new Forth dictionary words. It should read the first word after the <code class="language-plaintext highlighter-rouge">:</code> character and hash it. Then it should find the previous word, change a few variable addresses, and switch to compilation mode.</p>
+
+<p>In my case, I also want to create a lookup table for Forth words which indexes them by length. I didn’t really think that through so I’ll get to that later.</p>
+
+<p>Before we continue, I wanted to add more working registers for function parameters and return arguments:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>+# a1 = X   = working register
++# a2 = Y   = working register
++# a3 = Z   = working register
+</code></pre></div></div>
+
+<h3 id="reading-the-first-word">Reading the first word</h3>
+
+<p>The word we read will be called a <code class="language-plaintext highlighter-rouge">token</code>. Unlike <a href="https://github.com/cesarblum/sectorforth/blob/32031ac6e77e30817c2f65ba11b1ccda07d564f9/sectorforth.asm#L354-L423">sectorforth</a>, we’re not processing terminal/key entry data as we read the token. Instead, we expect the terminal input buffer to already contain the token, somewhere. This means we won’t need to check for non-printable ASCII characters or comments because they’ll have already been validated before being added to the buffer. Here’s how it should work:</p>
+
+<ol>
+  <li>Skip all whitespaces until a non-whitespace character is found.</li>
+  <li>Increment the word’s length by 1 for each character.</li>
+  <li>Skip all characters until a whitespace is found.</li>
+  <li>Return the word’s length and start address of the token.</li>
+  <li>If the buffer runs out while we’re seaching for characters, return with 0 length.</li>
+</ol>
+
+<p>This approach was used in <a href="https://github.com/theandrew168/derzforth/blob/4542c4c43388e8b647fd5183f89eb65c12a17fac/derzforth.asm#L123-L152">derzforth</a> but the code was confusing and non-optimal. I’ve attempted to improve it and ended up rewriting the entire thing:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>token:
+    li t1, 0x32                 # initialize temporary to 'space' character
+    li t2, 0                    # initialize temporary counter to 0
+token_char:
+    blt a1, a0, token_done      # compare the address of TOIN with the address of TIB
+    lbu t0, 0(a1)               # read char from TOIN address
+    addi a1, a1, -1             # move TOIN pointer down
+    bgeu t1, t0, token_space    # compare char with space
+    addi t2, t2, 1              # increment the token size for each non-space byte read
+    j token_char                # loop to read the next character
+token_space:
+    beqz t2, token_char         # loop to read next character if token size is 0
+    j token_done                # token reading is done
+token_done:
+    add a0, a1, t2              # add the size of the token with the address of TOIN to W
+    addi a0, a0, 1              # add 1 to W to account for TOIN offset pointer
+    mv a1, t2                   # store the size in X
+    ret
+</code></pre></div></div>
+
+<p>This <code class="language-plaintext highlighter-rouge">token</code> function is called in the <code class="language-plaintext highlighter-rouge">COLON</code> definition below:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>defcode ":", 0x0102b5df, COLON, LATEST
+    li a0, TIB          # load TIB into W
+    li a1, TOIN         # load TOIN into X
+    lw a1, 0(a1)        # load TOIN address value into X
+    call token
+</code></pre></div></div>
+
+<p>The <code class="language-plaintext highlighter-rouge">COLON</code> definition is not complete, since I’ll need to store the new <code class="language-plaintext highlighter-rouge">TOIN</code> address (a0) in the variable, and then continue processing things.</p>
+
+<h3 id="closing-thoughts">Closing thoughts</h3>
+
+<p>Writing this <code class="language-plaintext highlighter-rouge">token</code> code took a few days and quite a few iterations to get right, but I’m happy with the result since it’s short and reads fairly easily. I also have a cold so it has been difficult to focus on this task.</p>
+
+<p>In the next session, once I’m fully recovered, I’ll continue working on <code class="language-plaintext highlighter-rouge">COLON</code> with the goal of completing it.</p>
+
+  <div class="pagination">
+    
+      <a class="prev" href="/devlog-8-reviewing-primitives-again">&laquo; Devlog 8 Reviewing Primitives Again</a>
+    
+    
+      <a class="next" href="/devlog-10-extending-colon-and-fixing-bugs">Devlog 10 Extending Colon And Fixing Bugs &raquo;</a>
+    
+  </div>
+</article>
+      </section>
+    </div>
+  </div>
+
+   <footer>
+  <span>Copyright (c) 2021~ <a href="https://a1w.ca">Alexander Williams</a> and licensed under the permissive open source <a href="https://opensource.org/licenses/MIT">MIT</a> license.
+  </span>
+</footer>
+
+</body>
+
+</html>

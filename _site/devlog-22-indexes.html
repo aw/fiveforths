@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+  <meta name="generator" content="Jekyll">
+
+  <title>Devlog 22 Indexes</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link href="/atom.xml" type="application/atom+xml" rel="alternate" title="ATOM Feed" />
+</head>
+
+<body>
+  <div id="wrapper">
+    <header>
+  <div>
+    <a href="/">
+    
+      <h1>FiveForths</h1>
+    </a>
+    <p style="text-align: center;">32-bit RISC-V Forth for microcontrollers</p>
+    <div class="header-links">
+      <a href="https://github.com/aw/fiveforths"><h2 class="header-link">Code</h2></a>
+<a href="/archive"><h2 class="header-link">Archive</h2></a>
+<a href="/atom.xml"><h2 class="header-link">RSS</h2></a>
+<a href="https://github.com/aw/fiveforths/archive/refs/heads/master.zip"><h2 class="header-link">Download</h2></a>
+    </div>
+  </div>
+</header>
+    <div class="container">
+      <section id="main_content">
+        <article>
+  <h2>Devlog 22 Indexes</h2>
+  <h1 id="december-17-2022">December 17, 2022</h1>
+
+<ol>
+  <li><a href="#log-22">Log 22</a></li>
+  <li><a href="#indexes">Indexes</a></li>
+  <li><a href="#closing-thoughts">Closing thoughts</a></li>
+</ol>
+
+<h3 id="log-22">Log 22</h3>
+
+<p>Before I continue with the interpreter, I want to review an idea I had about indexing words.</p>
+
+<h3 id="indexes">Indexes</h3>
+
+<p>In <em>devlog 10</em> I mentioned removing indexes because they’re not necessary, but I think it’s such a cool feature that I decided I’ll give it a shot just for fun.</p>
+
+<p>The idea is instead of linking a word to the previously defined word in the dictionary, using <code class="language-plaintext highlighter-rouge">HERE</code> and <code class="language-plaintext highlighter-rouge">LATEST</code>, we would link it to the latest word of the same length… something like <code class="language-plaintext highlighter-rouge">LATEST5</code> for a word with 5 characters, or <code class="language-plaintext highlighter-rouge">LATEST17</code> for a word with 17 characters. We would also keep track with <code class="language-plaintext highlighter-rouge">HERE5</code> or <code class="language-plaintext highlighter-rouge">HERE17</code>. In total we would need to dedicate 64 CELLs for indexes (one <code class="language-plaintext highlighter-rouge">HERE</code> and one <code class="language-plaintext highlighter-rouge">LATEST</code> for each character length: 1 to 32, total 256 Bytes) because we’re limited to only 32 characters for a word’s length (5 bits). We would continue to update <code class="language-plaintext highlighter-rouge">HERE</code> and <code class="language-plaintext highlighter-rouge">LATEST</code> as usual, to make it easy to unhide a word in <code class="language-plaintext highlighter-rouge">SEMI</code>, but the <em>linking</em> part would keep all words of the same length together.</p>
+
+<p>Essentially, the indexes would be a new feature to make lookups quicker than the current <code class="language-plaintext highlighter-rouge">O(N)</code> dictionary word lookup. Another added benefit is in the future it would make <em>removing</em> a word much easier, since we wouldn’t need to wipe a huge chunk of the dictionary just to remove 1 word. It would be a <em>somewhat</em> simple matter of relinking the words of the same length, which might only be between 1 and 10 words (instead of possibly hundreds, depending on the size of the dictionary). All of this can easily be automated into a simple <code class="language-plaintext highlighter-rouge">forget</code> function or something like that.</p>
+
+<p>I realize this is probably an unnecessary optimization when the dictionary only contains a few words, but it seems like an interesting challenge that I could totally implement given a few hours of focus time.</p>
+
+<h3 id="closing-thoughts">Closing thoughts</h3>
+
+<p>Yes I know, I didn’t write any new code, I just wanted to flesh out an idea before I <em>forget</em> it haha.</p>
+
+<p>In the next session I’ll continue with the interpreter and then jump over to implement the <em>indexes</em> feature before coming back to the interpreter’s <code class="language-plaintext highlighter-rouge">lookup</code> function.</p>
+
+  <div class="pagination">
+    
+      <a class="prev" href="/devlog-21-interpreter-pt2">&laquo; Devlog 21 Interpreter Pt2</a>
+    
+    
+      <a class="next" href="/devlog-23-interpreter-pt3">Devlog 23 Interpreter Pt3 &raquo;</a>
+    
+  </div>
+</article>
+      </section>
+    </div>
+  </div>
+
+   <footer>
+  <span>Copyright (c) 2021~ <a href="https://a1w.ca">Alexander Williams</a> and licensed under the permissive open source <a href="https://opensource.org/licenses/MIT">MIT</a> license.
+  </span>
+</footer>
+
+</body>
+
+</html>

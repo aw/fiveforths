@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+  <meta name="generator" content="Jekyll">
+
+  <title>Devlog 1 Hello World</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link href="/atom.xml" type="application/atom+xml" rel="alternate" title="ATOM Feed" />
+</head>
+
+<body>
+  <div id="wrapper">
+    <header>
+  <div>
+    <a href="/">
+    
+      <h1>FiveForths</h1>
+    </a>
+    <p style="text-align: center;">32-bit RISC-V Forth for microcontrollers</p>
+    <div class="header-links">
+      <a href="https://github.com/aw/fiveforths"><h2 class="header-link">Code</h2></a>
+<a href="/archive"><h2 class="header-link">Archive</h2></a>
+<a href="/atom.xml"><h2 class="header-link">RSS</h2></a>
+<a href="https://github.com/aw/fiveforths/archive/refs/heads/master.zip"><h2 class="header-link">Download</h2></a>
+    </div>
+  </div>
+</header>
+    <div class="container">
+      <section id="main_content">
+        <article>
+  <h2>Devlog 1 Hello World</h2>
+  <h1 id="november-14-2022">November 14, 2022</h1>
+
+<h2 id="hello-world">Hello World</h2>
+
+<p>This log serves as a memory dump for my thought process while working on my custom 32-bit RISC-V Forth implementation. The idea is borrowed from <a href="https://ratfactor.com/assembly-nights">Dave’s NASM Forth</a> where he meticulously logged his “dev nights” while working on his port of Jonesforth.</p>
+
+<h3 id="how-to-follow-along">How to follow along</h3>
+
+<p>Just read it chronologically. I’ve opted to write in Markdown to make it easy to differentiate my thoughts VS my code/commands typed in the terminal.</p>
+
+<h3 id="log-1">Log 1</h3>
+
+<p>I began working on my Forth one year ago, in November 2021. Progress ended one month later because <em>life</em> focused my priorities on other things. The terminal is now reopened, but I need to refresh myself with the codebase haha.</p>
+
+<h4 id="getting-started-again">Getting started, again</h4>
+
+<p>To start, on Debian 11 it’s possible to install the <code class="language-plaintext highlighter-rouge">risc-v</code> cross-compiler tools for <code class="language-plaintext highlighter-rouge">rv32imac</code>, the target architecture of my <code class="language-plaintext highlighter-rouge">longan nano</code> 32-bit RISC-V hardware microcontroller.</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>apt-get install binutils-riscv64-unknown-elf gcc-riscv64-unknown-elf
+</code></pre></div></div>
+
+<p>Compile everything using <code class="language-plaintext highlighter-rouge">make</code>.</p>
+
+<p>It generates a series of files for debugging locally:</p>
+
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">fiveforths.s</code>: the actual source code for this Forth implementation.</li>
+  <li><code class="language-plaintext highlighter-rouge">fiveforths.o</code>: the compiled source code (using GNU AS) with all the object data, used to generate the ELF file.</li>
+  <li><code class="language-plaintext highlighter-rouge">fiveforths.elf</code>: a nice verbose dump of the ELF data which can be read with <code class="language-plaintext highlighter-rouge">make readelf</code>, and is used to generate the <code class="language-plaintext highlighter-rouge">.bin</code> and <code class="language-plaintext highlighter-rouge">.hex</code> files.</li>
+  <li><code class="language-plaintext highlighter-rouge">fiveforths.bin</code>: the binary file which gets flashed to the MCU (don’t flash it, it doesn’t work).</li>
+  <li><code class="language-plaintext highlighter-rouge">fiveforths.hex</code>: a hex file which can be uploaded to a web-based RISC-V simulator (ex: <a href="https://riscuinho.github.io/emulsiV/">emulsiV</a>).</li>
+</ul>
+
+<p>I was using GDB to test and debug the code locally, without flashing the MCU, but we’ll get to that later.</p>
+
+<h4 id="my-forth-implementation">My Forth implementation</h4>
+
+<p>This implementation is also somewhat inspired by <a href="https://github.com/cesarblum/sectorforth">sectorforth</a>, <a href="https://github.com/nornagon/jonesforth">jonesforth</a>, and <a href="https://github.com/theandrew168/derzforth">derzforth</a>. I made some changes to their implementations which are not set in stone, simply because I thought they would be cool and useful, but maybe they’re not… they’ll be explained in future logs.</p>
+
+<p><strong>Memory Map</strong></p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>+-----------------+-------------------------+
+|                 |                         |
+| Memory Map      | Size (1 Cell = 32 bits) |
+|                 |                         |
++-------------------------------------------+
+|                 |                         |
+| Data Stack      | 8192 Cells (1KiB)       |
+|                 |                         |
++-------------------------------------------+
+|                 |                         |
+| Return Stack    | 8192 Cells (1KiB)       |
+|                 |                         |
++-------------------------------------------+
+|                 |                         |
+| Terminal Buffer | 8192 Cells (1 KiB)      |
+|                 |                         |
++-------------------------------------------+
+|                 |                         |
+| Pad Area        | 64 Cells (256 Bytes)    |
+|                 |                         |
++-------------------------------------------+
+|                 |                         |
+|                 |                         |
+|                 |                         |
+| Dictionary      | Variable size           |
+|                 |                         |
+|                 |                         |
+|                 |                         |
++-----------------+-------------------------+
+</code></pre></div></div>
+
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">Data stack</code>: 1KiB, starts at the highest address <code class="language-plaintext highlighter-rouge">0x20000000</code> + the size of the RAM (20KiB for longan nano lite), and grows down towards the <em>Return stack</em>.</li>
+  <li><code class="language-plaintext highlighter-rouge">Return stack</code>: 1KiB, starts right below the bottom of the <em>Data stack</em>, and grows down towards the <em>Terminal buffer</em>.</li>
+  <li><code class="language-plaintext highlighter-rouge">Terminal buffer</code>: 1KiB, starts right below the bottom of the <em>Return stack</em>, and grows down towards the <em>Pad area</em>.</li>
+  <li><code class="language-plaintext highlighter-rouge">Pad area</code>: 64 cells (32 bits * 64), starts right below the bottom of the <em>Terminal buffer</em>, and grows down towards the <em>Dictionary</em> for Forth words etc.</li>
+  <li><code class="language-plaintext highlighter-rouge">Dictionary</code>: Variable sized, starts right at the start of the RAM memory, and grows up towards the bottom of the <em>Pad area</em>.</li>
+</ul>
+
+<p>Now here’s the funny thing, I don’t even know if the way I defined the memory map using <code class="language-plaintext highlighter-rouge">.equ</code> and <code class="language-plaintext highlighter-rouge">.balign</code> is correct. I think I’m missing a <em>layout</em> file to tell GNU AS how/where to place things.. I’ll focus on that later.</p>
+
+<h4 id="closing-thoughts">Closing thoughts</h4>
+
+<p>In the next log I’ll discuss the register variables, macros, and functions which I’ve implemented and confirmed work (the ones with an <code class="language-plaintext highlighter-rouge"># OK</code> comment right above).</p>
+
+  <div class="pagination">
+    
+    
+      <a class="next" href="/devlog-2-dive-into-the-code">Devlog 2 Dive Into The Code &raquo;</a>
+    
+  </div>
+</article>
+      </section>
+    </div>
+  </div>
+
+   <footer>
+  <span>Copyright (c) 2021~ <a href="https://a1w.ca">Alexander Williams</a> and licensed under the permissive open source <a href="https://opensource.org/licenses/MIT">MIT</a> license.
+  </span>
+</footer>
+
+</body>
+
+</html>

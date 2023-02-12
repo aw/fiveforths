@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+  <meta name="generator" content="Jekyll">
+
+  <title>Devlog 28 Execute</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link href="/atom.xml" type="application/atom+xml" rel="alternate" title="ATOM Feed" />
+</head>
+
+<body>
+  <div id="wrapper">
+    <header>
+  <div>
+    <a href="/">
+    
+      <h1>FiveForths</h1>
+    </a>
+    <p style="text-align: center;">32-bit RISC-V Forth for microcontrollers</p>
+    <div class="header-links">
+      <a href="https://github.com/aw/fiveforths"><h2 class="header-link">Code</h2></a>
+<a href="/archive"><h2 class="header-link">Archive</h2></a>
+<a href="/atom.xml"><h2 class="header-link">RSS</h2></a>
+<a href="https://github.com/aw/fiveforths/archive/refs/heads/master.zip"><h2 class="header-link">Download</h2></a>
+    </div>
+  </div>
+</header>
+    <div class="container">
+      <section id="main_content">
+        <article>
+  <h2>Devlog 28 Execute</h2>
+  <h1 id="december-30-2022">December 30, 2022</h1>
+
+<ol>
+  <li><a href="#log-28">Log 28</a></li>
+  <li><a href="#fixing-next">Fixing NEXT</a></li>
+  <li><a href="#execute">Execute</a></li>
+  <li><a href="#fixing-newlines">Fixing newlines</a></li>
+  <li><a href="#closing-thoughts">Closing thoughts</a></li>
+</ol>
+
+<h3 id="log-28">Log 28</h3>
+
+<p>In this session I’ll start by fixing the <code class="language-plaintext highlighter-rouge">NEXT</code> macro and then I’ll implement the <code class="language-plaintext highlighter-rouge">execute</code> function.</p>
+
+<h3 id="fixing-next">Fixing NEXT</h3>
+
+<p>Of course I had a feeling <code class="language-plaintext highlighter-rouge">NEXT</code> was wrong, because it was copied blindly from <em>derzforth</em> and has never been tested. However it may actually be correct afterall, but I’m not sure so let’s just move forward this these changes.</p>
+
+<p>The previous <code class="language-plaintext highlighter-rouge">NEXT</code> macro looked like this:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>.macro NEXT
+    lw a0, 0(s1)        # load memory address from IP into W
+    addi s1, s1, CELL   # increment IP by CELL size
+    lw t0, 0(a0)        # load memory address from W into temporary
+    jr t0               # jump to the address in temporary
+.endm
+</code></pre></div></div>
+
+<p>The new version looks like this:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>.macro NEXT
+    mv a0, s1           # load memory address from IP into W
+    addi s1, s1, CELL   # increment IP by CELL size
+    jr a0               # jump to the address in W
+.endm
+</code></pre></div></div>
+
+<p>It’s a bit simpler, in fact what changed is that it now makes a direct jump to the memory address stored in the <code class="language-plaintext highlighter-rouge">IP</code> register (<code class="language-plaintext highlighter-rouge">s1</code>). I believe the approach used by <em>derzforth</em> is to perform a double-indirect jump, which is why it was loading an address from an address in the <code class="language-plaintext highlighter-rouge">IP</code> register. I’m not sure why it does that, since <em>sectorforth</em> performs a direct jump and <em>jonesforth</em> only a single indirect jump…</p>
+
+<h3 id="execute">Execute</h3>
+
+<p>Now with <code class="language-plaintext highlighter-rouge">NEXT</code> “fixed” (I think?), we should be able to <em>execute</em> words (interpret them), so let’s define <code class="language-plaintext highlighter-rouge">execute</code> here:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>execute:
+    la s1, ok               # load the address of the interpreter into the IP register
+    addi a0, a1, 2*CELL     # increment the address of the found word by 8 to get the codeword address
+    lw t0, 0(a0)            # load memory address from W into temporary
+execute_done:
+    jr t0                   # jump to the address in temporary
+</code></pre></div></div>
+
+<p>The first thing is to load the <code class="language-plaintext highlighter-rouge">ok</code> function’s address into the <code class="language-plaintext highlighter-rouge">IP</code> register. Then we increment our found word from the <code class="language-plaintext highlighter-rouge">X</code> register (<code class="language-plaintext highlighter-rouge">a1</code>) by 2 CELLs, because that’s where we’ll find the <em>codeword</em> address.</p>
+
+<p>Then we load that codeward memory address into a temporary <code class="language-plaintext highlighter-rouge">t0</code> and jump to it.</p>
+
+<p>I know this is probably wrong in many ways, but it seems to somewhat work for a single token. I think that’s because of a bug in my token processing algorithm, which I’ll look at in another session.</p>
+
+<h3 id="fixing-newlines">Fixing newlines</h3>
+
+<p>I discovered a small issue with newlines in the <code class="language-plaintext highlighter-rouge">interpreter</code> function. The first piece of code was checking if the character was a comment. The <code class="language-plaintext highlighter-rouge">checkchar</code> macro would perform a <code class="language-plaintext highlighter-rouge">call uart_get</code> immediately followed by a <code class="language-plaintext highlighter-rouge">call uart_put</code>, which was problematic because upon reading a <em>newline</em> it would.. send a newline to the REPL! It looked like this:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>nope
+ ?
+state
+ ok
+</code></pre></div></div>
+
+<p>To fix this, i replaced that specific macro call with the expanded form, but added some code before the <code class="language-plaintext highlighter-rouge">call uart_put</code>. The code first checks if it’s a <em>newline</em>, if yes it skips the <code class="language-plaintext highlighter-rouge">call uart_put</code> and jumps to checking if it’s a comment. Otherwise it will <code class="language-plaintext highlighter-rouge">call uart_put</code> and then check if it’s a comment:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>+    call uart_get                               # read a character from UART
++    li t4, CHAR_NEWLINE                         # load newline into temporary
++    beq a0, t4, skip_send                       # don't send the character if it's a newline
++    call uart_put                               # send the character to UART
++
++skip_send:
+     # validate the character which is located in the W (a0) register
+-    checkchar CHAR_COMMENT, skip_comment        # check if character is a comment
++    li t0, CHAR_COMMENT                         # load comment character into temporary
++    beq a0, t0, skip_comment                    # skip the comment if it matches
+</code></pre></div></div>
+
+<p>Now when I type an invalid word in the REPL, I see a <code class="language-plaintext highlighter-rouge">?</code>, or an <code class="language-plaintext highlighter-rouge">ok</code> if the word is valid - on the same line. Like this:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>nope ?
+state ok
+</code></pre></div></div>
+
+<h3 id="closing-thoughts">Closing thoughts</h3>
+
+<p>Now I can execute ONE word (ex: <code class="language-plaintext highlighter-rouge">state</code>), but still can’t compile. I also can’t execute TWO ore more words (ex: <code class="language-plaintext highlighter-rouge">tib tib +</code>). In the next session I’ll focus on fixing the bug in code execution (hopefully it’s not related to the direct jump, but most likely it is haha), and then I’ll jump to compiling words.</p>
+
+  <div class="pagination">
+    
+      <a class="prev" href="/devlog-27-lookup">&laquo; Devlog 27 Lookup</a>
+    
+    
+      <a class="next" href="/devlog-29-what-kind-of-threads">Devlog 29 What Kind Of Threads &raquo;</a>
+    
+  </div>
+</article>
+      </section>
+    </div>
+  </div>
+
+   <footer>
+  <span>Copyright (c) 2021~ <a href="https://a1w.ca">Alexander Williams</a> and licensed under the permissive open source <a href="https://opensource.org/licenses/MIT">MIT</a> license.
+  </span>
+</footer>
+
+</body>
+
+</html>

@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+  <meta name="generator" content="Jekyll">
+
+  <title>Devlog 4 Validating The Implementation</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link href="/atom.xml" type="application/atom+xml" rel="alternate" title="ATOM Feed" />
+</head>
+
+<body>
+  <div id="wrapper">
+    <header>
+  <div>
+    <a href="/">
+    
+      <h1>FiveForths</h1>
+    </a>
+    <p style="text-align: center;">32-bit RISC-V Forth for microcontrollers</p>
+    <div class="header-links">
+      <a href="https://github.com/aw/fiveforths"><h2 class="header-link">Code</h2></a>
+<a href="/archive"><h2 class="header-link">Archive</h2></a>
+<a href="/atom.xml"><h2 class="header-link">RSS</h2></a>
+<a href="https://github.com/aw/fiveforths/archive/refs/heads/master.zip"><h2 class="header-link">Download</h2></a>
+    </div>
+  </div>
+</header>
+    <div class="container">
+      <section id="main_content">
+        <article>
+  <h2>Devlog 4 Validating The Implementation</h2>
+  <h1 id="november-18-2022">November 18, 2022</h1>
+
+<h2 id="validating-the-implementation">Validating the implementation</h2>
+
+<p>I started this session by validating code that’s been written and ensuring things are where they should be. I’ve also created an TODO list to <a href="https://github.com/aw/fiveforths/issues/1">track my progress</a>.</p>
+
+<h3 id="log-4">Log 4</h3>
+
+<p>As mentioned previously, I defined some constants for the RAM size etc, but I’m not sure if they are actually placed at the correct location in memory. Let’s have a look.</p>
+
+<h4 id="constant-locations">Constant locations</h4>
+
+<p>First I want to ensure the <code class="language-plaintext highlighter-rouge">__stacktop</code> address, i.e: the top of the stack, is correctly located at 0x20005000: <code class="language-plaintext highlighter-rouge">0x20000000 (start of RAM) + 0x5000 (size of RAM)</code> and placed into the <code class="language-plaintext highlighter-rouge">sp</code> (stack pointer / <code class="language-plaintext highlighter-rouge">x2</code>) register:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>grep __stacktop fiveforths.dump 
+    la sp, __stacktop
+ 800004c:	fb810113          	addi	sp,sp,-72 # 20005000 &lt;__stacktop&gt;
+</code></pre></div></div>
+
+<p>Perfect! Next, let’s ensure our constants point to the correct location:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>make readelf  | grep DSP_TOP
+18: 20005000     0 NOTYPE  LOCAL  DEFAULT  ABS DSP_TOP
+make readelf  | grep RSP_TOP
+    19: 20004f00     0 NOTYPE  LOCAL  DEFAULT  ABS RSP_TOP
+make readelf  | grep TIB
+    20: 20004e00     0 NOTYPE  LOCAL  DEFAULT  ABS TIB_TOP
+    21: 20004d00     0 NOTYPE  LOCAL  DEFAULT  ABS TIB
+</code></pre></div></div>
+
+<p>Great! The <code class="language-plaintext highlighter-rouge">DSP_TOP</code> should be at <code class="language-plaintext highlighter-rouge">0x20000000 (start of RAM) + 0x5000 (size of RAM) = 0x20005000</code>, the <code class="language-plaintext highlighter-rouge">RSP_TOP</code> should be at <code class="language-plaintext highlighter-rouge">0x20005000 - 0x100 (256 Bytes) = 0x20004F00</code>, and the <code class="language-plaintext highlighter-rouge">TIB_TOP</code> should be at <code class="language-plaintext highlighter-rouge">0x20004F00 - 0x100 (256 Bytes) = 0x20004E00</code>. Additionally, the lower address of <code class="language-plaintext highlighter-rouge">TIB</code> should be at <code class="language-plaintext highlighter-rouge">0x20004E00 - 0x100 (256 Bytes) = 0x20004D00</code>. So far so good, however..</p>
+
+<h4 id="stack-locations">Stack locations</h4>
+
+<p>I realized my stacks are placed at the wrong address, here’s a look:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>make readelf  | grep _stack
+    22: 20000100     0 NOTYPE  LOCAL  DEFAULT    3 data_stack
+    23: 20000200     0 NOTYPE  LOCAL  DEFAULT    3 return_stack
+    24: 20000300     0 NOTYPE  LOCAL  DEFAULT    3 tib_stack
+</code></pre></div></div>
+
+<p>Oops! They are starting at the bottom of the stack and growing upwards, when in fact they should start at the top and grow downwards. Let’s fix that:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>-# reserve 3x 256 Bytes for stacks
+-.bss
+-.balign STACK_SIZE
+-data_stack:
+-    .space STACK_SIZE                   # reserve 256 Bytes for data stack
+-return_stack:
+-    .space STACK_SIZE                   # reserve 256 Bytes for return stack
+-tib_stack:
+-    .space STACK_SIZE                   # reserve 256 Bytes for terminal buffer
+</code></pre></div></div>
+
+<p>What? I realized that adding labels for these stacks and “reserving” zero-filled space in RAM was pointless. I also removed other reserved spaces for variables and indexes. The indexes will be added above the pad space, so let’s define that:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>-indexes:
+-    .space (CELL * 64)                  # reserve 64 CELLS zero-filled
++.equ INDEXES, NOOP - (CELL * 64)        # 64 CELLS between NOOP and INDEXES
++.equ PAD, INDEXES - (CELL * 64)         # 64 CELLS between INDEXES and PAD
+</code></pre></div></div>
+
+<h4 id="additional-changes">Additional changes</h4>
+
+<p>I made some other minor changes such as creating labels for the ‘ok’, ‘?’, and ‘redefined ok’ strings, so we can easily jump to those when needed.</p>
+
+<p>Since the <em>Longan Nano Lite</em> has 64K FLASH and 20K RAM, and both are located in the same MCU chip, I think it makes more sense to keep the entire program and constants in FLASH, and only use the RAM for variables, stacks, and user-defined dictionary words. This is just my assumption the Forth can actually be executed from FLASH instead of RAM.</p>
+
+<h4 id="closing-thoughts">Closing thoughts</h4>
+
+<p>I’ve made some progress in improving the memory layout and size of the program, but there’s still some work to do there. At least for now I can check off a few things from the TODO list. I planned on testing the current code this session but validating the memory locations/addresses was more work than expected, so I’ll get to that next time before implementing the missing words.</p>
+
+  <div class="pagination">
+    
+      <a class="prev" href="/devlog-3-deeper-into-the-rabbit-hole">&laquo; Devlog 3 Deeper Into The Rabbit Hole</a>
+    
+    
+      <a class="next" href="/devlog-5-testing-the-implementation">Devlog 5 Testing The Implementation &raquo;</a>
+    
+  </div>
+</article>
+      </section>
+    </div>
+  </div>
+
+   <footer>
+  <span>Copyright (c) 2021~ <a href="https://a1w.ca">Alexander Williams</a> and licensed under the permissive open source <a href="https://opensource.org/licenses/MIT">MIT</a> license.
+  </span>
+</footer>
+
+</body>
+
+</html>

@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+  <meta name="generator" content="Jekyll">
+
+  <title>Devlog 31 Interpreting Words</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link href="/atom.xml" type="application/atom+xml" rel="alternate" title="ATOM Feed" />
+</head>
+
+<body>
+  <div id="wrapper">
+    <header>
+  <div>
+    <a href="/">
+    
+      <h1>FiveForths</h1>
+    </a>
+    <p style="text-align: center;">32-bit RISC-V Forth for microcontrollers</p>
+    <div class="header-links">
+      <a href="https://github.com/aw/fiveforths"><h2 class="header-link">Code</h2></a>
+<a href="/archive"><h2 class="header-link">Archive</h2></a>
+<a href="/atom.xml"><h2 class="header-link">RSS</h2></a>
+<a href="https://github.com/aw/fiveforths/archive/refs/heads/master.zip"><h2 class="header-link">Download</h2></a>
+    </div>
+  </div>
+</header>
+    <div class="container">
+      <section id="main_content">
+        <article>
+  <h2>Devlog 31 Interpreting Words</h2>
+  <h1 id="january-04-2023">January 04, 2023</h1>
+
+<ol>
+  <li><a href="#log-31">Log 31</a></li>
+  <li><a href="#reviewing-token">Reviewing token</a></li>
+  <li><a href="#interpreting-words">Interpreting words</a></li>
+  <li><a href="#closing-thoughts">Closing thoughts</a></li>
+</ol>
+
+<h3 id="log-31">Log 31</h3>
+
+<p>In this session I’m going to review the <code class="language-plaintext highlighter-rouge">token</code> function from <code class="language-plaintext highlighter-rouge">src/05-internal-functions.s</code> before reviewing the interpreter in file <code class="language-plaintext highlighter-rouge">src/09-interpreter.s</code>.</p>
+
+<h3 id="reviewing-token">Reviewing token</h3>
+
+<p>In my <code class="language-plaintext highlighter-rouge">token</code> function, I read characters backward from <code class="language-plaintext highlighter-rouge">TOIN</code> to the start of the word. This makes no sense because it’ll then be impossible to read the <em>next</em> word. I’ll need to make some adjustments for the <code class="language-plaintext highlighter-rouge">TOIN</code> variable location, but let’s start by fixing <code class="language-plaintext highlighter-rouge">token</code>.</p>
+
+<p>First, since we’re not comparing <code class="language-plaintext highlighter-rouge">TOIN</code> with the <code class="language-plaintext highlighter-rouge">TIB</code> address anymore, we can remove that guard:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>-    blt a1, a0, token_done      # compare the address of TOIN with the address of TIB
+</code></pre></div></div>
+
+<p>Next, we want to increment <code class="language-plaintext highlighter-rouge">TOIN</code> by 1 for each character found, instead of decrementing:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>-    addi a1, a1, -1             # move TOIN pointer down
++    addi a0, a0, 1              # move buffer pointer up
++    beqz t0, token_zero         # compare char with 0
+</code></pre></div></div>
+
+<p>I moved the buffer address to <code class="language-plaintext highlighter-rouge">W</code> instead of <code class="language-plaintext highlighter-rouge">X</code>. Here I also added a new branch address called <code class="language-plaintext highlighter-rouge">token_zero</code>. The <code class="language-plaintext highlighter-rouge">TIB</code> will always be filled with zeroes first, so we want to keep scanning the <code class="language-plaintext highlighter-rouge">TIB</code> until we find a zero. That’s a character which can’t be input via the UART/serial terminal, and doesn’t belong in the terminal input buffer (except when we initialize it).</p>
+
+<p>Next, when we find a <code class="language-plaintext highlighter-rouge">space</code> character, we want to ignore it because we know we’re done scanning our token:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>+    addi a0, a0, -1             # move buffer pointer down to ignore the space character
++    sub a0, a0, t2              # store the start address in W
++    j token_done
+</code></pre></div></div>
+
+<p>We’ll use that opportunity to store the new <code class="language-plaintext highlighter-rouge">TOIN</code> address in the <code class="language-plaintext highlighter-rouge">W</code> (<code class="language-plaintext highlighter-rouge">a0</code>) working register.</p>
+
+<p>Our <code class="language-plaintext highlighter-rouge">token_zero</code> label looks like this:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>+token_zero:
++    addi a0, a0, -1             # move buffer pointer down to ignore the 0
+</code></pre></div></div>
+
+<p>It does this because we also want to ignore the zero if we find it (by moving <code class="language-plaintext highlighter-rouge">TOIN</code> back by 1). This will automatically fall into <code class="language-plaintext highlighter-rouge">token_done</code> afterwards, whose only job is to store the size of the token in the <code class="language-plaintext highlighter-rouge">X</code> (<code class="language-plaintext highlighter-rouge">a1</code>) working register, and then return from the function:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>token_done:
+    mv a1, t2                   # store the size in X
+    ret
+</code></pre></div></div>
+
+<p>That’s all for adjusting the <code class="language-plaintext highlighter-rouge">token</code> function. Now we can jump back to the interpreter and fix that.</p>
+
+<h3 id="interpreting-words">Interpreting words</h3>
+
+<p>The first change I want to make is ensure our <code class="language-plaintext highlighter-rouge">.loop</code> function jumps to <code class="language-plaintext highlighter-rouge">process_token</code> instead of <code class="language-plaintext highlighter-rouge">ok</code>. We obviously don’t want to print <code class="language-plaintext highlighter-rouge">ok</code> after scanning only <em>one</em> word in the buffer:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>-.loop: .word ok             # indirect jump to interpreter after executing a word
++.loop: .word process_token  # indirect jump to interpreter after executing a word
+</code></pre></div></div>
+
+<p>Next, in our <code class="language-plaintext highlighter-rouge">interpreter_tib</code> function, we don’t actually want to start processing the token just yet, first we need to replace the <em>newline</em> with a <em>space</em>, so let’s jump to a different label:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>-    beq a0, t0, process_token                   # process the token if it matches
++    beq a0, t0, replace_newline                 # process the token if it matches
+</code></pre></div></div>
+
+<p>Then, where we convert the <em>newline</em> to a <em>space</em>, we’ll change the label name as well:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>-process_token:
++replace_newline:
+</code></pre></div></div>
+
+<p>Now things start to make a bit more sense, let’s re-add the <code class="language-plaintext highlighter-rouge">process_token</code> label a bit lower, where we actually “process” the “token” right before calling the <code class="language-plaintext highlighter-rouge">token</code> function. This is where we’ll loop to after executing a word:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>+process_token:
+     # process the token
+-    mv a0, t2               # load the TIB address in the W working register
++    li t3, TOIN             # load TOIN variable into unused temporary register
++    lw a0, 0(t3)            # load TOIN address value into temporary
+     call token              # read the token
+</code></pre></div></div>
+
+<p>We made a few changes here, the first was removing the naive approach of just copying the <code class="language-plaintext highlighter-rouge">TIB</code> address into <code class="language-plaintext highlighter-rouge">W</code>.</p>
+
+<p>This can probably be optimized by renaming some registers, but for now we want to reload <code class="language-plaintext highlighter-rouge">TOIN</code> into a temporary, and then load the <code class="language-plaintext highlighter-rouge">TOIN</code> address into <code class="language-plaintext highlighter-rouge">W</code>, before calling <code class="language-plaintext highlighter-rouge">token</code>. This ensures it’ll get the correct buffer address to start with.</p>
+
+<p>Once the call returns, we won’t need to reload <code class="language-plaintext highlighter-rouge">TOIN</code> because we’ll already have it in <code class="language-plaintext highlighter-rouge">W</code> (<code class="language-plaintext highlighter-rouge">a0</code>), as well as the token’s size in <code class="language-plaintext highlighter-rouge">X</code> (<code class="language-plaintext highlighter-rouge">a1</code>). We can just add them together to get the new <code class="language-plaintext highlighter-rouge">TOIN</code> address:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>-    lw t0, 0(t3)            # load TOIN address value into temporary
+-    add t0, t0, a1          # add the size of the token to TOIN
++    add t0, a0, a1          # add the size of the token to TOIN
+     sw t0, 0(t3)            # move TOIN to process the next word in the TIB
+
+     # bounds checks on token size
+     beqz a1, ok             # ok if token size is 0
+</code></pre></div></div>
+
+<p>This seems to work well. In the event where our token size is 0, because the last character was a space or a 0, then we’re done processing tokens and the bounds check will jump to <code class="language-plaintext highlighter-rouge">ok</code>, which re-initializes the <code class="language-plaintext highlighter-rouge">TIB</code> before looping back to the interpreter. Note the stack is <em>not</em> reset, so our <code class="language-plaintext highlighter-rouge">sp</code> stack pointer will remain and the words we entered in the terminal will have executed and their results will be stored in (or removed from) the stack (assuming they actually modify the stack).</p>
+
+<p>Example:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>(gdb) i r sp
+sp             0x20004ffc	0x20004ffc
+(gdb) x/xw 0x20004ffc
+0x20004ffc:	0x00000000
+(gdb) c
+Continuing.
+
+Breakpoint 1, interpreter_start () at src/09-interpreter.s:11
+</code></pre></div></div>
+
+<p>Now in the terminal I type <code class="language-plaintext highlighter-rouge">latest&lt;Enter</code>:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>latest ok
+</code></pre></div></div>
+
+<p>And back in <code class="language-plaintext highlighter-rouge">GDB</code>:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>(gdb) i r sp
+sp             0x20004ff8	0x20004ff8
+(gdb) x/xw 0x20004ff8
+0x20004ff8:	0x080004f8
+(gdb) x/xw 0x080004f8
+0x80004f8 &lt;word_SEMI&gt;:	0x080004ec
+</code></pre></div></div>
+
+<p>Perfect! There’s the address of the latest word we defined: <code class="language-plaintext highlighter-rouge">SEMI</code>.</p>
+
+<h3 id="closing-thoughts">Closing thoughts</h3>
+
+<p>I’m happy I can now execute multiple words from the terminal. The next step is to try and <em>compile</em> words. I’ll also need to ensure we call <code class="language-plaintext highlighter-rouge">number</code> so we can store numbers in the stack. I’ll try to focus on those two things in the next session, and see if I can find any bugs in the current implementation. Almost done!</p>
+
+  <div class="pagination">
+    
+      <a class="prev" href="/devlog-30-cleanup">&laquo; Devlog 30 Cleanup</a>
+    
+    
+      <a class="next" href="/devlog-32-fixing-bugs">Devlog 32 Fixing Bugs &raquo;</a>
+    
+  </div>
+</article>
+      </section>
+    </div>
+  </div>
+
+   <footer>
+  <span>Copyright (c) 2021~ <a href="https://a1w.ca">Alexander Williams</a> and licensed under the permissive open source <a href="https://opensource.org/licenses/MIT">MIT</a> license.
+  </span>
+</footer>
+
+</body>
+
+</html>

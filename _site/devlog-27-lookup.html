@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+  <meta name="generator" content="Jekyll">
+
+  <title>Devlog 27 Lookup</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link href="/atom.xml" type="application/atom+xml" rel="alternate" title="ATOM Feed" />
+</head>
+
+<body>
+  <div id="wrapper">
+    <header>
+  <div>
+    <a href="/">
+    
+      <h1>FiveForths</h1>
+    </a>
+    <p style="text-align: center;">32-bit RISC-V Forth for microcontrollers</p>
+    <div class="header-links">
+      <a href="https://github.com/aw/fiveforths"><h2 class="header-link">Code</h2></a>
+<a href="/archive"><h2 class="header-link">Archive</h2></a>
+<a href="/atom.xml"><h2 class="header-link">RSS</h2></a>
+<a href="https://github.com/aw/fiveforths/archive/refs/heads/master.zip"><h2 class="header-link">Download</h2></a>
+    </div>
+  </div>
+</header>
+    <div class="container">
+      <section id="main_content">
+        <article>
+  <h2>Devlog 27 Lookup</h2>
+  <h1 id="december-30-2022">December 30, 2022</h1>
+
+<ol>
+  <li><a href="#log-27">Log 27</a></li>
+  <li><a href="#lookup">Lookup</a></li>
+  <li><a href="#execute-or-compile">Execute or compile</a></li>
+  <li><a href="#closing-thoughts">Closing thoughts</a></li>
+</ol>
+
+<h3 id="log-27">Log 27</h3>
+
+<p>In this session I’m focused on performing hashed word lookups over the dictionary (linked list).</p>
+
+<h3 id="lookup">Lookup</h3>
+
+<p>Before performing a lookup, I forgot one important step after obtaining the <em>token</em>: moving <code class="language-plaintext highlighter-rouge">TOIN</code>. This is important because it helps the interpreter search for the next word when it loops. If we don’t move <code class="language-plaintext highlighter-rouge">TOIN</code>, we’ll keep searching from the start of the <code class="language-plaintext highlighter-rouge">TIB</code> (or in this case, from the same <code class="language-plaintext highlighter-rouge">TOIN</code> address). Let’s fix that:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    # move TOIN
+    lw t0, 0(t3)            # load TOIN address value into temporary
+    add t0, t0, a1          # add the size of the token to TOIN
+    sw t0, 0(t3)            # move TOIN to process the next word in the TIB
+</code></pre></div></div>
+
+<p>Now in <code class="language-plaintext highlighter-rouge">process_token</code>, after hashing the word with the <code class="language-plaintext highlighter-rouge">djb2_hash</code> function, we’ll need to load the <code class="language-plaintext highlighter-rouge">LATEST</code> word into a register. The <code class="language-plaintext highlighter-rouge">lookup</code> function will start searching from there, and as it loops it’ll jump to the next word and so-on, until it finds it or reaches the end:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    li a1, LATEST           # load LATEST variable into temporary
+    lw a1, 0(a1)            # load LATEST value into temporary
+    call lookup             # lookup the hash in the dictionary
+</code></pre></div></div>
+
+<p>OK so let’s define <code class="language-plaintext highlighter-rouge">lookup</code>. It’s mostly inspired by the <em>derzforth</em> implementation. Here are the parameters:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># search for a hash in the dictionary
+# arguments: a0 = hash of the word, a1 = address of the LATEST word
+# returns: a0 = hash of the word, a1 = address of the word if found
+</code></pre></div></div>
+
+<p>The first parameter, <code class="language-plaintext highlighter-rouge">a0</code> doesn’t get modified during the lookup, but we’ll return it intact in case we want to use it later. The <code class="language-plaintext highlighter-rouge">a1</code> parameter contains the address of the <code class="language-plaintext highlighter-rouge">LATEST</code> word and will return with the address of the found word (if found). If the word isn’t found (i.e: if we reach the end of the dictionary) then it’s an error and we’ll reset everything:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>lookup:
+    beqz a1, error              # error if the address is 0 (end of the dictionary)
+</code></pre></div></div>
+
+<p>The above works because our first primitive is linked to the word <code class="language-plaintext highlighter-rouge">NULL</code> which has the value <code class="language-plaintext highlighter-rouge">0</code>, see here:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>
+.equ word_NULL, 0
+
+# @ ( addr -- x )       Fetch memory at addr
+defcode "@", 0x0102b5e5, FETCH, NULL
+</code></pre></div></div>
+
+<p>Next, if we recall <em>devlog 20</em>, we need 3 CELLs for a word (link, <code class="language-plaintext highlighter-rouge">hash</code>, codeword). So if we want to get the hash of the word, we need to load it from offset <code class="language-plaintext highlighter-rouge">+4</code>:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    lw t0, 4(a1)                # load the hash of the word from the X working register
+</code></pre></div></div>
+
+<p>Afterwards, we want to skip the word if it’s <code class="language-plaintext highlighter-rouge">HIDDEN</code>. This is important for skipping the word we’re currently defining, as well as other words which should be skipped:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    # check if the word is hidden
+    li t1, F_HIDDEN            # load the HIDDEN flag into temporary
+    and t1, t0, t1             # read the hidden flag bit
+    bnez t1, lookup_next       # skip the word if it's hidden
+</code></pre></div></div>
+
+<p>Here we load the <code class="language-plaintext highlighter-rouge">HIDDEN</code> flag mask into a temporary, and perform a logical <code class="language-plaintext highlighter-rouge">AND</code> which will help use determine if the word is hidden or not. If it’s hidden, we’ll skip it and load the previous word linked in the dictionary before looping back to the <code class="language-plaintext highlighter-rouge">lookup</code> function:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>lookup_next:
+    lw a1, 0(a1)               # follow link to next word in dict
+    j lookup
+</code></pre></div></div>
+
+<p>Notice we’re loading from offset <code class="language-plaintext highlighter-rouge">0</code> this time, which is the <code class="language-plaintext highlighter-rouge">link</code> (side note: offset <code class="language-plaintext highlighter-rouge">+8</code> would be the <code class="language-plaintext highlighter-rouge">codeword</code>, which we’ll use later).</p>
+
+<p>Assuming our word was not hidden, we’ll then remove the top 3 bits using the inverted 3-bit flags mask. This way we’ll only compare a word based on the remaining length + hash (5 + 24 bits):</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    # remove the 3-bit flags using a mask
+    li t1, ~FLAGS_MASK         # load the inverted 3-bit flags mask into temporary
+    and t0, t0, t1             # ignore flags when comparing the hashes
+    beq t0, a0, lookup_done    # done if the hashes match
+</code></pre></div></div>
+
+<p>And if the hashes match, then we can return from the function:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>lookup_done:
+    ret
+</code></pre></div></div>
+
+<p>Otherwise, it’ll continue to <code class="language-plaintext highlighter-rouge">lookup_next</code>. That’s all for our <code class="language-plaintext highlighter-rouge">lookup</code> function!</p>
+
+<h3 id="execute-or-compile">Execute or compile</h3>
+
+<p>The final step is to decide if we want to execute the word, or compile it. The way <em>sectorforth</em> handles that is to load the <code class="language-plaintext highlighter-rouge">IMMEDIATE</code> flag from the word, and the <code class="language-plaintext highlighter-rouge">STATE</code> variable, and then perform a logical <code class="language-plaintext highlighter-rouge">OR</code>, then decrement that result by 1. If the final result is <code class="language-plaintext highlighter-rouge">0</code> then we <em>compile</em>, otherwise we <em>execute</em>. Here’s the truth table borrowed from <em>sectorforth</em>:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>        ; IMMEDIATE     STATE         OR   ACTION
+        ;   0000000   0000000   00000000   Interpret
+        ;   0000000   0000001   00000001   Compile
+        ;   1000000   0000000   10000000   Interpret
+        ;   1000000   0000001   10000001   Interpret
+</code></pre></div></div>
+
+<p>So let’s return to our <code class="language-plaintext highlighter-rouge">process_token</code> function, right after we <code class="language-plaintext highlighter-rouge">call lookup</code>, we’ll check if the word has the <code class="language-plaintext highlighter-rouge">IMMEDIATE</code> flag set:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    # check if the word is immediate
+    lw t0, 4(a1)            # load the hash of the found word into temporary
+    li t1, F_IMMEDIATE      # load the IMMEDIATE flag into temporary
+    and t0, t0, t1          # read the status of the immediate flag bit
+</code></pre></div></div>
+
+<p>Here we loaded the hash of the found word (again, at offset <code class="language-plaintext highlighter-rouge">+4</code>), and performed a logical <code class="language-plaintext highlighter-rouge">AND</code> with the <code class="language-plaintext highlighter-rouge">IMMEDIATE</code> flag mask.</p>
+
+<p>Next we’ll load the <code class="language-plaintext highlighter-rouge">STATE</code> variable:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    # load the STATE variable value
+    li t1, STATE            # load the address of the STATE variable into temporary
+    lw t1, 0(t1)            # load the current state into a temporary
+</code></pre></div></div>
+
+<p>And finally we make our decision:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    # decide if we want to execute or compile the word
+    or t0, t0, t1           # logical OR the immediate flag and state
+    addi t0, t0, -1         # decrement the result by 1
+    beqz t0, compile        # compile the word if the result is 0
+</code></pre></div></div>
+
+<h3 id="closing-thoughts">Closing thoughts</h3>
+
+<p>I think the <code class="language-plaintext highlighter-rouge">NEXT</code> macro might be broken, since I haven’t reviewed it at all since it was first written in 2021. In the next session I’ll start with reviewing the <code class="language-plaintext highlighter-rouge">NEXT</code> macro, and then focus on <em>compiling</em> and <em>executing</em> code. I’ll also write a short test routine to test the <code class="language-plaintext highlighter-rouge">lookup</code> function.</p>
+
+  <div class="pagination">
+    
+      <a class="prev" href="/devlog-26-checking-numbers-pt3">&laquo; Devlog 26 Checking Numbers Pt3</a>
+    
+    
+      <a class="next" href="/devlog-28-execute">Devlog 28 Execute &raquo;</a>
+    
+  </div>
+</article>
+      </section>
+    </div>
+  </div>
+
+   <footer>
+  <span>Copyright (c) 2021~ <a href="https://a1w.ca">Alexander Williams</a> and licensed under the permissive open source <a href="https://opensource.org/licenses/MIT">MIT</a> license.
+  </span>
+</footer>
+
+</body>
+
+</html>

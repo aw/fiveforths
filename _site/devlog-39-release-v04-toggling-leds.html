@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+  <meta name="generator" content="Jekyll">
+
+  <title>Devlog 39 Release V04 Toggling Leds</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link href="/atom.xml" type="application/atom+xml" rel="alternate" title="ATOM Feed" />
+</head>
+
+<body>
+  <div id="wrapper">
+    <header>
+  <div>
+    <a href="/">
+    
+      <h1>FiveForths</h1>
+    </a>
+    <p style="text-align: center;">32-bit RISC-V Forth for microcontrollers</p>
+    <div class="header-links">
+      <a href="https://github.com/aw/fiveforths"><h2 class="header-link">Code</h2></a>
+<a href="/archive"><h2 class="header-link">Archive</h2></a>
+<a href="/atom.xml"><h2 class="header-link">RSS</h2></a>
+<a href="https://github.com/aw/fiveforths/archive/refs/heads/master.zip"><h2 class="header-link">Download</h2></a>
+    </div>
+  </div>
+</header>
+    <div class="container">
+      <section id="main_content">
+        <article>
+  <h2>Devlog 39 Release V04 Toggling Leds</h2>
+  <h1 id="january-23">January 23</h1>
+
+<ol>
+  <li><a href="#log-39">Log 39</a></li>
+  <li><a href="#release-v04">Release v04</a></li>
+  <li><a href="#toggling-leds">Toggling LEDs</a></li>
+  <li><a href="#closing-thoughts">Closing thoughts</a></li>
+</ol>
+
+<h3 id="log-39">Log 39</h3>
+
+<p>In this session I’ll discuss the <a href="https://github.com/aw/fiveforths/releases/tag/v0.4">latest release</a> which includes handling HEX numbers and manipulating hardware.</p>
+
+<h3 id="release-v04">Release v04</h3>
+
+<p>One of the major obstacles to working with hardware was the lack of support for hexadecimal numbers. That is, inputting something like <code class="language-plaintext highlighter-rouge">0xCAFE4241</code> would be treated as a string (and word not found). Back in the day, older <em>Forths</em> would set the base value using a word such as <code class="language-plaintext highlighter-rouge">HEX</code> or <code class="language-plaintext highlighter-rouge">DECIMAL</code> or even <code class="language-plaintext highlighter-rouge">OCTAL</code>. I think this is completely unnecessary and much more elegant to simply prefix a number with the number base <code class="language-plaintext highlighter-rouge">0x</code>. It also prevents problems where one might forget to set the base back to what it previously was. Decimal is the default base for numbers, and octal can be ignored (or implemented in Forth). Binary input might be added in the future, with the <code class="language-plaintext highlighter-rouge">0b</code> prefix, but I don’t think it’s very important for now.</p>
+
+<p>More importantly, when browsing through the CPU datasheet, we’ll typically (always) find memory addresses given in hexadecimal values, so let’s support that.</p>
+
+<p>First, in our internal <code class="language-plaintext highlighter-rouge">number</code> function after checking if the number is negative (prefixed with <code class="language-plaintext highlighter-rouge">-</code>), instead of jumping to <code class="language-plaintext highlighter-rouge">number_digit</code> we’ll jump to <code class="language-plaintext highlighter-rouge">number_check</code> and see if it’s hexadecimal (prefixed with <code class="language-plaintext highlighter-rouge">0x</code>):</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>number_check:
+    li t3, 0x00007830           # load the '0x' string into temporary
+    lhu t2, 0(a0)               # load the first 2 characters into temporary
+    bne t2, t3, number_digit    # jump to number digit loop if the first 2 characters are not '0x'
+</code></pre></div></div>
+
+<p>We’re using the <code class="language-plaintext highlighter-rouge">lhu</code> instruction to load a half-word (16 bits / 2 bytes), and then comparing those 2 bytes with the value <code class="language-plaintext highlighter-rouge">0x00007830</code> which just so happens to be <code class="language-plaintext highlighter-rouge">0x</code> when input through the UART. If there’s no match, then we’ll jump to the <code class="language-plaintext highlighter-rouge">number_digit</code> routine as usual. If there is a match, then we’ll set the number base to <code class="language-plaintext highlighter-rouge">16</code> in a temporary register, and increment the buffer address by 2 to skip the <code class="language-plaintext highlighter-rouge">0x</code> characters. We jump to <code class="language-plaintext highlighter-rouge">number_error</code> if the string is only 2 characters and equal to <code class="language-plaintext highlighter-rouge">0x</code>. This doesn’t actually return an error / reset things. All it does is adjust the return value in the <code class="language-plaintext highlighter-rouge">X</code> working register so when the function returns, we’ll know it’s not a number (maybe <code class="language-plaintext highlighter-rouge">0x</code> is a word? why not?).</p>
+
+<p>In <code class="language-plaintext highlighter-rouge">number_digit</code>, we’re doing things a bit differently to check if the digits are valid. We want to ensure they’re between <code class="language-plaintext highlighter-rouge">0-9</code> if the base is 10, and between <code class="language-plaintext highlighter-rouge">0-F</code> if the base is 16. Unfortunately in ASCII the letters <code class="language-plaintext highlighter-rouge">A-F</code> don’t immediately follow <code class="language-plaintext highlighter-rouge">9</code> or precede <code class="language-plaintext highlighter-rouge">0</code>, so a bit of funky math is required. The exact approach is explained very well in the Forth book <em>“Threaded Interpretive Languages (1981)”</em>, but luckily for us it was also implemented in <a href="https://github.com/nornagon/jonesforth/blob/master/jonesforth.S#L1453-L1481">jonesforth</a>. Even better, an existing <em>QEMU jonesforth RISC-V port</em> <a href="https://github.com/jjyr/jonesforth_riscv/blob/master/jonesforth.S#L1552-L1579">also implemented this approach</a> in Assembly, so I inspired myself from those two and made some modifications to work in <a href="https://github.com/aw/fiveforths/blob/master/src/05-internal-functions.s#L77-L107">FiveForths</a>.</p>
+
+<p>The final change was to change the return type for the <code class="language-plaintext highlighter-rouge">X</code> register. Previously a <code class="language-plaintext highlighter-rouge">1</code> meant <code class="language-plaintext highlighter-rouge">OK</code> and a <code class="language-plaintext highlighter-rouge">0</code> meant <code class="language-plaintext highlighter-rouge">ERROR</code>. I changed it so <code class="language-plaintext highlighter-rouge">0</code> means <code class="language-plaintext highlighter-rouge">OK</code> and anything greater than that means <code class="language-plaintext highlighter-rouge">ERROR</code>. The reason is the <code class="language-plaintext highlighter-rouge">X</code> register (<code class="language-plaintext highlighter-rouge">a1</code>) starts off holding the size of the token, and while processing each digit we decrement that size until it reaches <code class="language-plaintext highlighter-rouge">0</code>. Although if we detect a non-digit (ex: <code class="language-plaintext highlighter-rouge">G</code> or <code class="language-plaintext highlighter-rouge">$</code>) then it’s definitely not a number, so we end the routine there, leaving <code class="language-plaintext highlighter-rouge">X</code> at its last value, which will ultimately be greater than <code class="language-plaintext highlighter-rouge">0</code> (thus, an error). If the value of <code class="language-plaintext highlighter-rouge">X</code> is <code class="language-plaintext highlighter-rouge">0</code> at the end of the routine, we know for sure we have a valid number, which we store in the <code class="language-plaintext highlighter-rouge">W</code> working register (<code class="language-plaintext highlighter-rouge">a0</code>).</p>
+
+<p>Of course in the interpreter when <code class="language-plaintext highlighter-rouge">call number</code> returns, we need to check if <code class="language-plaintext highlighter-rouge">X</code> was <code class="language-plaintext highlighter-rouge">zero</code> instead:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>-    bnez a1, push_number    # push the token to the stack or memory if it's a number
++    beqz a1, push_number    # push the token to the stack or memory if it's a number
+</code></pre></div></div>
+
+<p>That’s a small but crucial change.</p>
+
+<h3 id="toggling-leds">Toggling LEDs</h3>
+
+<p>Now that we can input hexadecimal numbers, it becomes much easier to mess with the hardware. Our <em>Hello World</em> for <em>FiveForths</em> involves toggling the blue (pin A1) and green (pin A2) LEDs.</p>
+
+<p>Before we start, it’s important to define some words which will be used later:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>: invert -1 nand ;
+: over sp@ 4 + @ ;
+: swap over over sp@ 12 + ! sp@ 4 + ! ;
+: and nand invert ;
+: or invert swap invert nand ;
+</code></pre></div></div>
+
+<p>Now here’s the Forth code to turn on the green and blue LEDs on the <em>Longan Nano</em>:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>: green_led_on 0x40010800 @ 0xFFFFFF0F and 0x00000030 or 0x40010800 ! ;
+: blue_led_on 0x40010800 @ 0xFFFFF0FF and 0x00000300 or 0x40010800 ! ;
+green_led_on
+blue_led_on
+</code></pre></div></div>
+
+<p>Here’s what the code actually does:</p>
+
+<ul>
+  <li>read the current GPIOA port config (with <code class="language-plaintext highlighter-rouge">@</code>)</li>
+  <li>apply a mask to clear the 4 bits for pin the (with <code class="language-plaintext highlighter-rouge">and</code>)</li>
+  <li>apply the new pin config (with <code class="language-plaintext highlighter-rouge">or</code>)</li>
+  <li>store the new GPIOA port config (with <code class="language-plaintext highlighter-rouge">!</code>)</li>
+  <li>execute the new word to turn on the LED</li>
+</ul>
+
+<p>And here’s an explanation of the hexadecimal values:</p>
+
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">0x40010800</code>: GPIOA base address with offset <code class="language-plaintext highlighter-rouge">0x00</code> for <code class="language-plaintext highlighter-rouge">CTL0</code> pins 0-7 (would be <code class="language-plaintext highlighter-rouge">CTL1</code> with offset <code class="language-plaintext highlighter-rouge">0x04</code> for pins 8-15).</li>
+  <li><code class="language-plaintext highlighter-rouge">0xFFFFF0FF</code>: mask to clear GPIO pin 2 (would be the same for GPIO pin 10, while GPIO pin 1 would be <code class="language-plaintext highlighter-rouge">0xFFFFFF0F</code> and GPIO pin 8 would be <code class="language-plaintext highlighter-rouge">0xFFFFFFF0</code>).</li>
+  <li><code class="language-plaintext highlighter-rouge">0x00000030</code>: GPIO pin 1 setting <code class="language-plaintext highlighter-rouge">0b0011</code> which is <code class="language-plaintext highlighter-rouge">push-pull output, max speed 50MHz</code>.</li>
+  <li><code class="language-plaintext highlighter-rouge">0x00000040</code>: GPIO pin 1 setting <code class="language-plaintext highlighter-rouge">0b0100</code> which is <code class="language-plaintext highlighter-rouge">floating input</code>.</li>
+  <li><code class="language-plaintext highlighter-rouge">0x00000300</code>: GPIO pin 2 setting <code class="language-plaintext highlighter-rouge">0b0011</code> which is <code class="language-plaintext highlighter-rouge">push-pull output, max speed 50MHz</code>.</li>
+  <li><code class="language-plaintext highlighter-rouge">0x00000400</code>: GPIO pin 2 setting <code class="language-plaintext highlighter-rouge">0b0100</code> which is <code class="language-plaintext highlighter-rouge">floating input</code>.</li>
+</ul>
+
+<p>Now to turn off the LEDs is equally simple:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>: green_led_off 0x40010800 @ 0xFFFFFF0F and 0x00000040 or 0x40010800 ! ;
+: blue_led_off 0x40010800 @ 0xFFFFF0FF and 0x00000400 or 0x40010800 ! ;
+green_led_off
+blue_led_off
+</code></pre></div></div>
+
+<p>Notice here in the definitions all we changed is the value of the GPIO pin settings. We’re switching the GPIO pins back to <code class="language-plaintext highlighter-rouge">floating input</code> mode, which essentially is like turning off the LEDs (technically the LEDs are active-low, so turning them “on” requires us to bring the pins low).</p>
+
+<p>I think this shows some of the stronger points of writing in Forth as opposed to Assembly, and it’s nice being able to do it interactively and see the results right away.</p>
+
+<h3 id="closing-thoughts">Closing thoughts</h3>
+
+<p>I’ll be focusing on other projects moving forward, so I don’t expect to add any new features or enhancements anytime soon, or at least until those projects are completed. Thanks for following along!</p>
+
+  <div class="pagination">
+    
+      <a class="prev" href="/devlog-38-release-v03">&laquo; Devlog 38 Release V03</a>
+    
+    
+  </div>
+</article>
+      </section>
+    </div>
+  </div>
+
+   <footer>
+  <span>Copyright (c) 2021~ <a href="https://a1w.ca">Alexander Williams</a> and licensed under the permissive open source <a href="https://opensource.org/licenses/MIT">MIT</a> license.
+  </span>
+</footer>
+
+</body>
+
+</html>

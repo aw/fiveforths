@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+  <meta name="generator" content="Jekyll">
+
+  <title>Devlog 11 Completing Colon</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link href="/atom.xml" type="application/atom+xml" rel="alternate" title="ATOM Feed" />
+</head>
+
+<body>
+  <div id="wrapper">
+    <header>
+  <div>
+    <a href="/">
+    
+      <h1>FiveForths</h1>
+    </a>
+    <p style="text-align: center;">32-bit RISC-V Forth for microcontrollers</p>
+    <div class="header-links">
+      <a href="https://github.com/aw/fiveforths"><h2 class="header-link">Code</h2></a>
+<a href="/archive"><h2 class="header-link">Archive</h2></a>
+<a href="/atom.xml"><h2 class="header-link">RSS</h2></a>
+<a href="https://github.com/aw/fiveforths/archive/refs/heads/master.zip"><h2 class="header-link">Download</h2></a>
+    </div>
+  </div>
+</header>
+    <div class="container">
+      <section id="main_content">
+        <article>
+  <h2>Devlog 11 Completing Colon</h2>
+  <h1 id="december-1-2022">December 1, 2022</h1>
+
+<ol>
+  <li><a href="#log-11">Log 11</a></li>
+  <li><a href="#completing-colon">Completing COLON</a></li>
+  <li><a href="#closing-thoughts">Closing thoughts</a></li>
+</ol>
+
+<h2 id="log-11">Log 11</h2>
+
+<p>I think this session will be short since I only plan to “complete” the <code class="language-plaintext highlighter-rouge">COLON</code> primitive.</p>
+
+<h3 id="completing-colon">Completing COLON</h3>
+
+<p>OK so I wrote quite a few lines of code to finish this definition, without logging what I was doing. So I’ll start by showing what a word definition should look like in memory:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>+----------+----------+----------+
+|   LINK   |   HASH   | CODEWORD |
++----------+----------+----------+
+ 32-bit     32-bit     32-bit
+</code></pre></div></div>
+
+<p>It’s similar to how <em>jonesforth</em> does it, except we don’t need to store the length of the word.</p>
+
+<p>I realized later that we need to set the <code class="language-plaintext highlighter-rouge">HIDDEN</code> flag inside the hash (in the second bit starting from the MSB), to ensure the it can’t be found during a lookup in compilation mode:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    # set the hidden flag in the hash
+    li t0, F_HIDDEN      # load hidden flag into temporary
+    or a0, a0, t0        # hide the word
+</code></pre></div></div>
+
+<p>Next, I want to load some variables into temporary registers, because I’ll use them later:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    # copy the memory address of some variables to temporary registers
+    li t0, HERE
+    li t1, LATEST
+    la t2, enter        # load the codeword address into temporary # FIXME: enter or docol?
+</code></pre></div></div>
+
+<p>Notice I put a <code class="language-plaintext highlighter-rouge"># FIXME</code> for loading the address of the <code class="language-plaintext highlighter-rouge">enter</code> label. I did that because <em>derzforth</em> uses it as the codeword, but I have a feeling I may be mistaken in copying that implementation. <em>sectorforth</em> and <em>jonesforth</em> point to <em>docol</em>, so I need to read more about this later.</p>
+
+<p>Next I want to load the actual values pointed by the <code class="language-plaintext highlighter-rouge">HERE</code> and <code class="language-plaintext highlighter-rouge">LATEST</code> variables:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    # load and update memory addresses from variables
+    lw t3, 0(t0)        # load the new start address of the current word into temporary (HERE)
+    lw t4, 0(t1)        # load the address of the previous word into temporary (LATEST)
+</code></pre></div></div>
+
+<p>They’re stored in different temporary registers because we’ll need to write to <code class="language-plaintext highlighter-rouge">t0</code> and <code class="language-plaintext highlighter-rouge">t1</code> later. This should save a couple instructions.</p>
+
+<p>From here it becomes quite simple, we’re first going to update the <code class="language-plaintext highlighter-rouge">LATEST</code> variable to point to the value pointed by <code class="language-plaintext highlighter-rouge">HERE</code>. Essentially we want <code class="language-plaintext highlighter-rouge">LATEST</code> to point to this new word’s start address.</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    # update LATEST variable
+    sw t3, 0(t1)        # store the current value of HERE into the LATEST variable
+</code></pre></div></div>
+
+<p>Then we’re going to build the header (LINK, HASH, CODEWORD) by storing it in memory at the <code class="language-plaintext highlighter-rouge">HERE</code> address:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    # build the header in memory
+    sw t4, 0(t3)        # store the address of the previous word
+    sw a0, 4(t3)        # store the hash
+    sw t2, 8(t3)        # store the codeword address
+</code></pre></div></div>
+
+<p>The LINK mentioned above is the address of the previous word, aka <code class="language-plaintext highlighter-rouge">LATEST</code>.</p>
+
+<p>The next step is to update the <code class="language-plaintext highlighter-rouge">HERE</code> variable, similarly to what we did with <code class="language-plaintext highlighter-rouge">LATEST</code> above, except we’re now going to point <code class="language-plaintext highlighter-rouge">HERE</code> to the <em>end</em> of the word:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    # update HERE variable
+    addi t3, t3, 12     # move the HERE pointer to the end of the word
+    sw t3, 0(t0)        # store the new address of HERE into the HERE variable
+</code></pre></div></div>
+
+<p>I’m using a 12-byte offset because we stored <code class="language-plaintext highlighter-rouge">3 * 32</code> (<code class="language-plaintext highlighter-rouge">96 bits / 12 bytes</code>) of data in memory.</p>
+
+<p>The final step in our <code class="language-plaintext highlighter-rouge">COLON</code> definition is to update the <code class="language-plaintext highlighter-rouge">STATE</code> variable. We want to set it to <code class="language-plaintext highlighter-rouge">1</code> so the interpreter knows we’re now in compilation mode:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    # update STATE variable
+    li t0, STATE        # load the address of the STATE variable into temporary
+    li t1, 1            # set the STATE variable to compile mode (1 = compile)
+    sw t1, 0(t0)        # store the current state back into the STATE variable
+    NEXT
+</code></pre></div></div>
+
+<p>I think (hope?) that completes the <code class="language-plaintext highlighter-rouge">COLON</code> definition.</p>
+
+<h3 id="closing-thoughts">Closing thoughts</h3>
+
+<p>The good news is the code still compiles, and I can run it just fine in the <em>Ripes</em> simulator. Inspecting the memory addresses and registers confirms that the code works as expected, and the correct values are stored in the correct locations, but I still need to figure out the whole <em>codeword</em> thing (enter/docol?).</p>
+
+<p>In the next session, I’m hoping to fully understand the roles of <code class="language-plaintext highlighter-rouge">docol</code> and <code class="language-plaintext highlighter-rouge">enter</code>, and maybe move onto the next missing primitive: <code class="language-plaintext highlighter-rouge">SEMI</code> (<code class="language-plaintext highlighter-rouge">;</code>).</p>
+
+  <div class="pagination">
+    
+      <a class="prev" href="/devlog-10-extending-colon-and-fixing-bugs">&laquo; Devlog 10 Extending Colon And Fixing Bugs</a>
+    
+    
+      <a class="next" href="/devlog-12-completing-semi">Devlog 12 Completing Semi &raquo;</a>
+    
+  </div>
+</article>
+      </section>
+    </div>
+  </div>
+
+   <footer>
+  <span>Copyright (c) 2021~ <a href="https://a1w.ca">Alexander Williams</a> and licensed under the permissive open source <a href="https://opensource.org/licenses/MIT">MIT</a> license.
+  </span>
+</footer>
+
+</body>
+
+</html>

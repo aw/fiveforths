@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+  <meta name="generator" content="Jekyll">
+
+  <title>Devlog 6 Simpler Code</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link href="/atom.xml" type="application/atom+xml" rel="alternate" title="ATOM Feed" />
+</head>
+
+<body>
+  <div id="wrapper">
+    <header>
+  <div>
+    <a href="/">
+    
+      <h1>FiveForths</h1>
+    </a>
+    <p style="text-align: center;">32-bit RISC-V Forth for microcontrollers</p>
+    <div class="header-links">
+      <a href="https://github.com/aw/fiveforths"><h2 class="header-link">Code</h2></a>
+<a href="/archive"><h2 class="header-link">Archive</h2></a>
+<a href="/atom.xml"><h2 class="header-link">RSS</h2></a>
+<a href="https://github.com/aw/fiveforths/archive/refs/heads/master.zip"><h2 class="header-link">Download</h2></a>
+    </div>
+  </div>
+</header>
+    <div class="container">
+      <section id="main_content">
+        <article>
+  <h2>Devlog 6 Simpler Code</h2>
+  <h1 id="november-21-2022">November 21, 2022</h1>
+
+<ol>
+  <li><a href="#simpler-code">Simpler code</a></li>
+  <li><a href="#log-6">Log 6</a></li>
+  <li><a href="#cleanup-the-makefile">Cleanup the Makefile</a></li>
+  <li><a href="#sorting-primitives">Sorting primitives</a></li>
+  <li><a href="#defining-new-words">Defining new words</a></li>
+  <li><a href="#stack-pointer-and-top-of-stack">Stack pointer and top of stack</a></li>
+  <li><a href="#reviewing-primitives">Reviewing primitives</a></li>
+  <li><a href="#closing-thoughts">Closing Thoughts</a></li>
+</ol>
+
+<h2 id="simpler-code">Simpler code</h2>
+
+<p>Before adding new words to the Assembly file (<code class="language-plaintext highlighter-rouge">fiveforths.s</code>), I thought it would be a good idea to cleanup and simplify a few things.</p>
+
+<h3 id="log-6">Log 6</h3>
+
+<p>The <code class="language-plaintext highlighter-rouge">Makefile</code> was my first target, where I remove a bunch of redundant text and replaced them with some wildcards.</p>
+
+<h4 id="cleanup-the-makefile">Cleanup the Makefile</h4>
+
+<p>A few of the lines were changed to look something like this:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>+PROGNAME = fiveforths
+-fiveforths.elf:
+-               $(LD) -m $(EMU) -T fiveforths.ld -o $@ fiveforths.o
++%.elf: %.o
++               $(LD) -m $(EMU) -T $(PROGNAME).ld -o $@ $&lt;
+</code></pre></div></div>
+
+<h4 id="sorting-primitives">Sorting primitives</h4>
+
+<p>Since this Forth begins life with a small set of primitives, I decided to sort them based on their functionality. The first section contains words 8 primitive words:</p>
+
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">@ ! sp@ rp@ 0= + nand exit</code></li>
+</ul>
+
+<p>Which are followed by 2 input/output words:</p>
+
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">key emit</code></li>
+</ul>
+
+<p>Next we’ll find 5 variables:</p>
+
+<p><code class="language-plaintext highlighter-rouge">state tib &gt;in here latest</code></p>
+
+<p>And finally the last two words for defining new words:</p>
+
+<p><code class="language-plaintext highlighter-rouge">: ;</code></p>
+
+<h4 id="defining-new-words">Defining new words</h4>
+
+<p>At the moment, the missing (undefined) words are <code class="language-plaintext highlighter-rouge">&gt;in key emit : ;</code>. Of course we’re also missing some functions to handle I/O but we’ll get to that later.</p>
+
+<p>Here i’ll start with the <code class="language-plaintext highlighter-rouge">&gt;in</code> variable, aka <code class="language-plaintext highlighter-rouge">TOIN</code>. Its job is to give a look into the <code class="language-plaintext highlighter-rouge">TIB</code> - <em>terminal input buffer</em> so we can know where we are in the buffer (ex: when reading a line of text). Here is the code defintion:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>defcode "&gt;in", 0x0387c89a, TOIN, STATE
+    PUSH s3             # push TOS to top of data stack
+    li t0, TOIN         # load address value from TOIN into temporary
+    lw s3, 0(t0)        # load temporary into TOS
+    NEXT
+</code></pre></div></div>
+
+<p>and the macro-expanded version:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    .section .rodata
+    .balign 4           # align to CELL bytes boundary
+    .globl word_TOIN
+  word_TOIN :
+    .4byte word_STATE   # 32-bit pointer to codeword of link
+    .4byte 0x0387c89a   # 32-bit hash of this word
+    .globl code_TOIN
+  code_TOIN :
+    .4byte body_TOIN    # 32-bit pointer to codeword of label
+    .balign 4           # align to CELL bytes boundary
+    .text
+    .balign 4           # align to CELL bytes boundary
+    .globl body_TOIN
+  body_TOIN :           # assembly code below
+    addi sp, sp, -4     # decrement DSP by 4 bytes (32-bit aligned)
+    sw s3, 0(sp)        # store value from register into DSP
+    li t0, TOIN         # load address value from TOIN into temporary
+    lw s3, 0(t0)        # load temporary into TOS
+
+    lw a0, 0(s1)        # load memory address from IP into W
+    addi s1, s1, 4      # increment IP by CELL size
+    lw t0, 0(a0)        # load memory address from W into temporary
+    jr t0               # jump to the address in temporary
+</code></pre></div></div>
+
+<p>I already noticed some issues here, which I’ll explain below.</p>
+
+<h4 id="stack-pointer-and-top-of-stack">Stack pointer and top of stack</h4>
+
+<p>While reading <a href="https://www.goodreads.com/book/show/20507605-stack-computers">Stack Computers: The New Wave (Koopman, 1989)</a>, I had the idea of using a <code class="language-plaintext highlighter-rouge">TOS</code> (<code class="language-plaintext highlighter-rouge">s3/x19</code> register) as the top of the stack register. The top item in the stack would always be directly accessible in <code class="language-plaintext highlighter-rouge">s3</code> instead of a memory address pointed to by the data stack pointer <code class="language-plaintext highlighter-rouge">DSP</code> (<code class="language-plaintext highlighter-rouge">sp/x2</code> register). This should theoretically make it much quicker to work on data that is in the <code class="language-plaintext highlighter-rouge">TOS</code>, since there’s no need to “juggle” the <code class="language-plaintext highlighter-rouge">DSP</code>.</p>
+
+<p>However when I look at the code, it seems I’m still moving the <code class="language-plaintext highlighter-rouge">DSP</code> around (for no reason) in certain places.</p>
+
+<p>I also think I should probably dedicate a second register for this, let’s call it <code class="language-plaintext highlighter-rouge">SOS</code> (<code class="language-plaintext highlighter-rouge">s4/x20</code> register) to act as the “second top of stack” register.</p>
+
+<h4 id="reviewing-primitives">Reviewing primitives</h4>
+
+<p>With the above in mind, let’s review the existing primitives, and make sure my understanding of these registers is correct.</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>@ ( addr -- x )       Fetch memory at addr
+</code></pre></div></div>
+
+<p>This <code class="language-plaintext highlighter-rouge">FETCH</code> primitive is designed to “fetch” a value from the top of the stack (a memory address), and then store the value referenced at the memory address, back into the top of the stack:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>defcode "@", 0x0102b5e5, FETCH, NULL
+    lw s3, 0(s3)        # load address value from TOS into TOS
+    NEXT
+</code></pre></div></div>
+
+<p>Thanks to our <code class="language-plaintext highlighter-rouge">TOS</code> register (<code class="language-plaintext highlighter-rouge">s3</code>), we can perform this operating with just 1 instruction. Let’s keep going.</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>! ( x addr -- )       Store x at addr
+</code></pre></div></div>
+
+<p>This <code class="language-plaintext highlighter-rouge">STORE</code> primitive is designed to “store” a value into a memory address. It also moves the lower two <code class="language-plaintext highlighter-rouge">DSP</code> values into <code class="language-plaintext highlighter-rouge">SOS</code> and <code class="language-plaintext highlighter-rouge">TOS</code>, and increases the <code class="language-plaintext highlighter-rouge">sp</code> by 2 cells:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>defcode "!", 0x0102b5c6, STORE, FETCH
+    sw s4, 0(s3)        # store value from SOS into memory address stored in TOS
+    lw s4, 4(sp)		# load second stack element from DSP into SOS
+    lw s3, 0(sp)		# load first stack element from DSP into TOS
+    addi sp, sp, 8      # increment DSP by 2 cells (32-bit aligned)
+    NEXT
+</code></pre></div></div>
+
+<p>This code looks awfully familiar! In fact, it’s just like the <code class="language-plaintext highlighter-rouge">POP</code> macro, except it works on 2 registers instead of 1. Let’s think about this some more… if popping the <code class="language-plaintext highlighter-rouge">TOS</code> and <code class="language-plaintext highlighter-rouge">SOS</code>, we can save one instruction by decreasing the <code class="language-plaintext highlighter-rouge">sp</code> by 8 instead of 4, as shown above.</p>
+
+<p>In this case, let’s add new macro called <code class="language-plaintext highlighter-rouge">DUALPOP</code> as shown above I think this might be a common operation:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>.macro DUALPOP reg1, reg2
+    lw \reg2, 4(sp)     # load second stack element from DSP into register 2
+    lw \reg1, 0(sp)     # load first stack element from DSP into register 1
+    addi sp, sp, 8      # increment DSP by 2 cells (32-bit aligned)
+.endm
+</code></pre></div></div>
+
+<p>Then we can replace the above <code class="language-plaintext highlighter-rouge">STORE</code> primitive with:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>defcode "!", 0x0102b5c6, STORE, FETCH
+    sw s4, 0(s3)        # store value from SOS into memory address stored in TOS
+    DUALPOP s3, s4      # pop first and second top of stack data registers into TOS and SOS
+    NEXT
+</code></pre></div></div>
+
+<h4 id="closing-thoughts">Closing Thoughts</h4>
+
+<p>This was a rather long session with lots of changes, but I’m happy it’s moving along. In the next session, I’ll continue reviewing the other primitives such as <code class="language-plaintext highlighter-rouge">sp@</code> and <code class="language-plaintext highlighter-rouge">rp@</code>, because I’m certain they don’t work as expected anymore with the <code class="language-plaintext highlighter-rouge">TOS</code> and <code class="language-plaintext highlighter-rouge">SOS</code> registers.</p>
+
+  <div class="pagination">
+    
+      <a class="prev" href="/devlog-5-testing-the-implementation">&laquo; Devlog 5 Testing The Implementation</a>
+    
+    
+      <a class="next" href="/devlog-7-reverting-code">Devlog 7 Reverting Code &raquo;</a>
+    
+  </div>
+</article>
+      </section>
+    </div>
+  </div>
+
+   <footer>
+  <span>Copyright (c) 2021~ <a href="https://a1w.ca">Alexander Williams</a> and licensed under the permissive open source <a href="https://opensource.org/licenses/MIT">MIT</a> license.
+  </span>
+</footer>
+
+</body>
+
+</html>

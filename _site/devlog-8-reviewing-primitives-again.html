@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+  <meta name="generator" content="Jekyll">
+
+  <title>Devlog 8 Reviewing Primitives Again</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link href="/atom.xml" type="application/atom+xml" rel="alternate" title="ATOM Feed" />
+</head>
+
+<body>
+  <div id="wrapper">
+    <header>
+  <div>
+    <a href="/">
+    
+      <h1>FiveForths</h1>
+    </a>
+    <p style="text-align: center;">32-bit RISC-V Forth for microcontrollers</p>
+    <div class="header-links">
+      <a href="https://github.com/aw/fiveforths"><h2 class="header-link">Code</h2></a>
+<a href="/archive"><h2 class="header-link">Archive</h2></a>
+<a href="/atom.xml"><h2 class="header-link">RSS</h2></a>
+<a href="https://github.com/aw/fiveforths/archive/refs/heads/master.zip"><h2 class="header-link">Download</h2></a>
+    </div>
+  </div>
+</header>
+    <div class="container">
+      <section id="main_content">
+        <article>
+  <h2>Devlog 8 Reviewing Primitives Again</h2>
+  <h1 id="november-24-2022">November 24, 2022</h1>
+
+<ol>
+  <li><a href="#reviewing-primitives-again">Reviewing primitives again</a></li>
+  <li><a href="#log-8">Log 8</a></li>
+  <li><a href="#simple-fixes">Simple fixes</a></li>
+  <li><a href="#reviewing-variables">Reviewing variables</a></li>
+  <li><a href="#closing-thoughts">Closing Thoughts</a></li>
+</ol>
+
+<h2 id="reviewing-primitives-again">Reviewing primitives again</h2>
+
+<p>Continuing from the last session, I’ll look at the primitives and see what needs to be adjusted.</p>
+
+<h3 id="log-8">Log 8</h3>
+
+<p>In this session, I want to fix the remaining <code class="language-plaintext highlighter-rouge"># OK</code> primitives.</p>
+
+<h4 id="simple-fixes">Simple fixes</h4>
+
+<p>We’ll begin by looking at <code class="language-plaintext highlighter-rouge">ZEQU</code>:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># 0= ( x -- f )         1 if top of stack is 0, 0 otherwise
+defcode "0=", 0x025970b2, ZEQU, RSPFETCH
+    seqz s3, s3         # store 1 in TOS if TOS is equal to 0, otherwise store 0
+    NEXT
+</code></pre></div></div>
+
+<p>This is a very short primitive because it only works on the <code class="language-plaintext highlighter-rouge">TOS</code> register. RISC-V’s pseudo-instruction <code class="language-plaintext highlighter-rouge">seqz</code> is very useful in this case for checking if the <code class="language-plaintext highlighter-rouge">TOS</code> is equal to zero. Next, we’ll look at the <code class="language-plaintext highlighter-rouge">ADD</code> primitive, which takes the <code class="language-plaintext highlighter-rouge">TOS</code> and top of the <code class="language-plaintext highlighter-rouge">DSP</code>, moves the <code class="language-plaintext highlighter-rouge">DSP</code> pointer up by 1 cell and stores the result in the <code class="language-plaintext highlighter-rouge">TOS</code>.</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># + ( x1 x2 -- n )      Add the two values at the top of the stack
+defcode "+", 0x0102b5d0, ADD, ZEQU
+    addi sp, sp, CELL   # move the DSP up by 1 cell
+    lw t0, -CELL(sp)    # load value to temporary
+    add s3, s3, t0      # add values and store in TOS
+    NEXT
+</code></pre></div></div>
+
+<p>Part of the above operation looks very similar to a <code class="language-plaintext highlighter-rouge">POP</code>, so we’ll move that to a macro:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># pop top of stack to register
+.macro POP reg
+    addi sp, sp, CELL   # move the DSP up by 1 cell
+    lw \reg, -CELL(sp)  # load DSP value to temporary
+.endm
+
+# + ( x1 x2 -- n )      Add the two values at the top of the stack
+defcode "+", 0x0102b5d0, ADD, ZEQU
+    POP t0              # pop value into temporary
+    add s3, s3, t0      # add values and store in TOS
+    NEXT
+</code></pre></div></div>
+
+<p>The following primitive, bitwise <code class="language-plaintext highlighter-rouge">NAND</code>, built from RISC-V’s <code class="language-plaintext highlighter-rouge">and</code> and <code class="language-plaintext highlighter-rouge">not</code> instructions (similar to <code class="language-plaintext highlighter-rouge">&amp;</code> and <code class="language-plaintext highlighter-rouge">~</code> in C).</p>
+
+<p>This is simplified below:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># nand ( x1 x2 -- n )   bitwise NAND the two values at the top of the stack
+defcode "nand", 0x049b0c66, NAND, ADD
+    POP t0              # pop value into temporary
+    and s3, s3, t0      # store bitwise AND of temporary and TOS into TOS
+    not s3, s3          # store bitwise NOT of TOS into TOS
+    NEXT
+</code></pre></div></div>
+
+<p>Finally, the <code class="language-plaintext highlighter-rouge">EXIT</code> primitive restores the address at the top of the return stack into the instruction pointer <code class="language-plaintext highlighter-rouge">IP</code>:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># exit ( r:addr -- )    Resume execution at address at the top of the return stack
+defcode "exit", 0x04967e3f, EXIT, NAND
+    POPRSP s1           # pop RSP into IP
+    NEXT
+</code></pre></div></div>
+
+<h4 id="reviewing-variables">Reviewing variables</h4>
+
+<p>The 5 variables <code class="language-plaintext highlighter-rouge">TIB STATE TOIN HERE LATEST</code> are almost identical, where we simply want move the current <code class="language-plaintext highlighter-rouge">TOS</code> to the top of the <code class="language-plaintext highlighter-rouge">DSP</code>, and then load the address stored in the variable to the <code class="language-plaintext highlighter-rouge">TOS</code>. That’s basically a <code class="language-plaintext highlighter-rouge">PUSH</code> operation so we’ll define a new macro <code class="language-plaintext highlighter-rouge">PUSHVAR</code> for that:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># push variable to top of stack
+.macro PUSHVAR var
+    sw s3, -CELL(sp)    # store the value in the TOS to the top of the DSP
+    li t0, \var         # load variable into temporary
+    lw s3, 0(t0)        # load variable address value into TOS
+    addi sp, sp, -CELL  # move the DSP down by 1 cell
+.endm
+</code></pre></div></div>
+
+<p>Our new <code class="language-plaintext highlighter-rouge">tib</code> variable looks like this:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>defcode "tib", 0x0388ae44, TIB, EMIT
+    PUSHVAR TIB         # store TIB variable value in TOS
+    NEXT
+</code></pre></div></div>
+
+<p>Not bad! Now we can do the same for the other variables.</p>
+
+<h4 id="closing-thoughts">Closing Thoughts</h4>
+
+<p>It was nice to restore the macro for <code class="language-plaintext highlighter-rouge">POP</code>. That completes the review of primitive words and variables. Next I’ll be able to tackle <code class="language-plaintext highlighter-rouge">COLON</code> and <code class="language-plaintext highlighter-rouge">SEMI</code>.. and whatever else is missing haha.</p>
+
+  <div class="pagination">
+    
+      <a class="prev" href="/devlog-7-reverting-code">&laquo; Devlog 7 Reverting Code</a>
+    
+    
+      <a class="next" href="/devlog-9-token-reading">Devlog 9 Token Reading &raquo;</a>
+    
+  </div>
+</article>
+      </section>
+    </div>
+  </div>
+
+   <footer>
+  <span>Copyright (c) 2021~ <a href="https://a1w.ca">Alexander Williams</a> and licensed under the permissive open source <a href="https://opensource.org/licenses/MIT">MIT</a> license.
+  </span>
+</footer>
+
+</body>
+
+</html>

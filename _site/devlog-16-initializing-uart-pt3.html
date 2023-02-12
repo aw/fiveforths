@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+  <meta name="generator" content="Jekyll">
+
+  <title>Devlog 16 Initializing Uart Pt3</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link href="/atom.xml" type="application/atom+xml" rel="alternate" title="ATOM Feed" />
+</head>
+
+<body>
+  <div id="wrapper">
+    <header>
+  <div>
+    <a href="/">
+    
+      <h1>FiveForths</h1>
+    </a>
+    <p style="text-align: center;">32-bit RISC-V Forth for microcontrollers</p>
+    <div class="header-links">
+      <a href="https://github.com/aw/fiveforths"><h2 class="header-link">Code</h2></a>
+<a href="/archive"><h2 class="header-link">Archive</h2></a>
+<a href="/atom.xml"><h2 class="header-link">RSS</h2></a>
+<a href="https://github.com/aw/fiveforths/archive/refs/heads/master.zip"><h2 class="header-link">Download</h2></a>
+    </div>
+  </div>
+</header>
+    <div class="container">
+      <section id="main_content">
+        <article>
+  <h2>Devlog 16 Initializing Uart Pt3</h2>
+  <h1 id="december-8-2022">December 8, 2022</h1>
+
+<ol>
+  <li><a href="#log-16">Log 16</a></li>
+  <li><a href="#initializing-uart-pt3">Initializing UART pt3</a></li>
+  <li><a href="#configuring-gpio">Configuring GPIO</a></li>
+  <li><a href="#closing-thoughts">Closing thoughts</a></li>
+</ol>
+
+<h2 id="log-16">Log 16</h2>
+
+<p>I’m aiming to complete the UART and GPIO initialization in this session.</p>
+
+<h3 id="initializing-uart-pt3">Initializing UART pt3</h3>
+
+<p>Last time, we enabled the clocks and set the baud rate. Now we’ll look at setting up the mode bits. We know the <code class="language-plaintext highlighter-rouge">USART0</code> mode settings are in the <em>Control registers</em> at address <code class="language-plaintext highlighter-rouge">0x4001 3800</code> at offsets <code class="language-plaintext highlighter-rouge">0x0C</code>, <code class="language-plaintext highlighter-rouge">0x10</code>, and <code class="language-plaintext highlighter-rouge">0x14</code>, and we don’t need to read them first because we always want to overwrite the UART configuration when we initialize it - discarding any previously configured settings.</p>
+
+<p>We’ll start by configuring <em>Control register 1</em>, which sets the <em>Stop bits</em> to 1:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    li t1, (0 &lt;&lt; 12) | (0 &lt;&lt; 13) # set STB (bits 12 and 13) to 00 (1 stop bit)
+    sw t1, 0x10(t0)     # store the value in the USART Control register 1 (USART_CTL1)
+</code></pre></div></div>
+
+<p>Technically it’s not necessary since the default is <code class="language-plaintext highlighter-rouge">00</code> on reset. But this makes sure it’ll always be <code class="language-plaintext highlighter-rouge">00</code> during init, in the event it was previously configured to something else (not on reset).</p>
+
+<p>Next we’ll disable hardware flow control, half-duplex, etc in <em>Control register 2</em>:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>   sw zero, 0x14(t0)   # store the value in the USART Control register 2 (USART_CTL2)
+</code></pre></div></div>
+
+<p>Finally we’ll configure <em>Control register 0</em>, which enables the <em>Receiver</em>, <em>Transmitter</em>, and <em>USART</em>:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    li t1, (1 &lt;&lt; 2) | (1 &lt;&lt; 3) | (1 &lt;&lt; 13) # set REN (bit 2), TEN (bit 3), UEN (bit 13)
+    sw t1, 0x0C(t0)     # store the value in the USART Control register 0 (USART_CTL0)
+
+uart_done:
+    ret
+</code></pre></div></div>
+
+<p>Now let’s examine the registers in memory to see if it’s all set accordingly. We’ll only look at the first 16 bits because the rest are all reserved bits:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>(gdb) x/th 0x40013800+0x10
+0x40013810:	0000000000000000
+(gdb) x/th 0x40013800+0x14
+0x40013814:	0000000000000000
+(gdb) x/th 0x40013800+0x0C
+0x4001380c:	0010000000001100
+</code></pre></div></div>
+
+<p>OK! That’s exactly what we wanted. I know some might think there’s some un-necessary initialization code here, but we have to remember that UART init might not always/only occur when the device is reset. I want to keep the door open for reinitializing it with different settings in the future, without requiring much head-scratching or code changes.</p>
+
+<h3 id="configuring-gpio">Configuring GPIO</h3>
+
+<p>Now I want to configure the GPIO pins to handle <code class="language-plaintext highlighter-rouge">RX/TX</code>. We’re using pins 9 (TX) and 10 (RX) on the GPIO port A. Their configuration is stored at address <code class="language-plaintext highlighter-rouge">0x4001 0800</code> at offset <code class="language-plaintext highlighter-rouge">0x04</code>. First we’ll load the current values from memory:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>gpio_init:
+    # configure TX on pin 9 of port A (0b0011)
+    li t0, 0x40010800                       # load base address of GPIOA
+    lw t1, 0x04(t0)                         # load value from the Port control register 1 (GPIOA_CTL1)
+</code></pre></div></div>
+
+<p>Then we’ll need to define a bitmask to clear the bits we want to modify, and we’ll clear them:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    li t2, 0xfffff00f                       # load bitmask to clear 8 bits (MD9[1:0],CTL9[1:0],MD10[1:0],CTL10[1:0])
+    and t1, t1, t2                          # clear the bits (TX 4,5,6,7) and (RX 8,9,10,11)
+</code></pre></div></div>
+
+<p>That sets 8 bits to 0, the 8 bits used to configure and set the mode of the <code class="language-plaintext highlighter-rouge">RX/TX</code> pins. Next I do something a bit weird, but again it’s somewhat future-proofing the Assembly code:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    or t1, t1, (1 &lt;&lt; 4) | (1 &lt;&lt; 5) | (0 &lt;&lt; 6) | (0 &lt;&lt; 7) # set the bits 4,5,6,7 (output push-pull, max speed 50MHz)
+</code></pre></div></div>
+
+<p>This sets the 4 bits for <code class="language-plaintext highlighter-rouge">TX</code> to 0 or 1 depending on the setting we want. I’m looking to set it to <code class="language-plaintext highlighter-rouge">0b0011</code>, there the two least significant bits are 1 and 1 (from the right). In the future it’ll be easy to change those configs and modes by simply changing the 0 or 1 values above.</p>
+
+<p>Next we dosomething similar for <code class="language-plaintext highlighter-rouge">RX</code>, except it’s configured with slightly higher values so they can’t be used as an immidate. This means we’ll need to store it in a register before applying it. The value to store is <code class="language-plaintext highlighter-rouge">0b0100</code> where the first two least significant bits are 0 and 0 (from the right):</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    # configure RX on pin 10 of port A (0b0100)
+    li t2, (0 &lt;&lt; 8) | (0 &lt;&lt; 9) | (1 &lt;&lt; 10) | (0 &lt;&lt; 11)  # load the bits 8,9,10,11
+    or t1, t1, t2                           # set the bits 8,9,10,11 (input floating, mode)
+    sw t1, 0x04(t0)                         # store the value in the Port control register 1 (GPIOA_CTL1)
+
+gpio_done:
+    ret
+</code></pre></div></div>
+
+<p>The final line stores the entire 32-bit value back into the register, and our USART GPIO pins should be fully configured now. We can examine the low 16-bits value in memory:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>(gdb) x/th 0x40010800+0x04
+0x40010804:	0100010000110100
+</code></pre></div></div>
+
+<p>Let’s cleanup the formatting there:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>0100 0100 0011 0100
+</code></pre></div></div>
+
+<p>We can see bits 4 and 5 are set to 1, as expected, and bit 10 is also set to 1. The other values remain unchanged since we performed a bitwise <code class="language-plaintext highlighter-rouge">OR</code> to store them.</p>
+
+<h3 id="closing-thoughts">Closing thoughts</h3>
+
+<p>Well that was somewhat less exciting than I expected. I’m happy the USART and GPIO are fully configured, but I still don’t know if it’s <em>correct</em> until I actually try to communicate over the UART. I’ll reserve that for the next session though.</p>
+
+  <div class="pagination">
+    
+      <a class="prev" href="/devlog-15-initializing-uart-pt2">&laquo; Devlog 15 Initializing Uart Pt2</a>
+    
+    
+      <a class="next" href="/devlog-17-fixing-uart">Devlog 17 Fixing Uart &raquo;</a>
+    
+  </div>
+</article>
+      </section>
+    </div>
+  </div>
+
+   <footer>
+  <span>Copyright (c) 2021~ <a href="https://a1w.ca">Alexander Williams</a> and licensed under the permissive open source <a href="https://opensource.org/licenses/MIT">MIT</a> license.
+  </span>
+</footer>
+
+</body>
+
+</html>

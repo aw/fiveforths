@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+  <meta name="generator" content="Jekyll">
+
+  <title>Devlog 30 Cleanup</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link href="/atom.xml" type="application/atom+xml" rel="alternate" title="ATOM Feed" />
+</head>
+
+<body>
+  <div id="wrapper">
+    <header>
+  <div>
+    <a href="/">
+    
+      <h1>FiveForths</h1>
+    </a>
+    <p style="text-align: center;">32-bit RISC-V Forth for microcontrollers</p>
+    <div class="header-links">
+      <a href="https://github.com/aw/fiveforths"><h2 class="header-link">Code</h2></a>
+<a href="/archive"><h2 class="header-link">Archive</h2></a>
+<a href="/atom.xml"><h2 class="header-link">RSS</h2></a>
+<a href="https://github.com/aw/fiveforths/archive/refs/heads/master.zip"><h2 class="header-link">Download</h2></a>
+    </div>
+  </div>
+</header>
+    <div class="container">
+      <section id="main_content">
+        <article>
+  <h2>Devlog 30 Cleanup</h2>
+  <h1 id="january-02-2023">January 02, 2023</h1>
+
+<ol>
+  <li><a href="#log-30">Log 30</a></li>
+  <li><a href="#cleanup">Cleanup</a></li>
+  <li><a href="#closing-thoughts">Closing thoughts</a></li>
+</ol>
+
+<h3 id="log-30">Log 30</h3>
+
+<p>I can’t seem to find my way through <code class="language-plaintext highlighter-rouge">fiveforths.s</code> anymore. The file has grown to over <strong>700 lines</strong> and even with a good text editor I have trouble finding stuff. In this session I’ll split things into various files to simplify my life.</p>
+
+<h3 id="cleanup">Cleanup</h3>
+
+<p>Since <code class="language-plaintext highlighter-rouge">GNU Assembler</code> has very primitive <em>include</em> functionality, I’ll make sure to move the source files to the <code class="language-plaintext highlighter-rouge">src/</code> sub-directory, and each file will be prefixed with a number, to clearly indicate the correct loading order.</p>
+
+<p>The first change is to include <code class="language-plaintext highlighter-rouge">src</code> in the search path for the assembler, so we’ll modify the <code class="language-plaintext highlighter-rouge">Makefile</code> like this:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>-               $(AS) $(CFLAGS) -march=$(ARCH) -o $@ $&lt;
++               $(AS) $(CFLAGS) -march=$(ARCH) -I src -o $@ $&lt;
+</code></pre></div></div>
+
+<p>Next, I modified <code class="language-plaintext highlighter-rouge">fiveforths.s</code> by including each file in numerical order:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>.include "01-variables-constants.s"
+.include "02-macros.s"
+.include "03-interrupts.s"
+
+# include board-specific functions
+.include "gd32vf103.s"
+
+.include "04-io-helpers.s"
+.include "05-internal-functions.s"
+.include "06-initialization.s"
+.include "07-error-handling.s"
+.include "08-forth-primitives.s"
+.include "09-interpreter.s"
+</code></pre></div></div>
+
+<p>Finally, I simply moved the pieces of code into separate files. It seems like quite a big change, but the functionality remains exactly the same. Just type <code class="language-plaintext highlighter-rouge">make</code> and it will rebuild everything as usual.</p>
+
+<h3 id="closing-thoughts">Closing thoughts</h3>
+
+<p>This change was purely aesthetic but I think it was really necessary to preserve my sanity. I’ll get back to fixing the <code class="language-plaintext highlighter-rouge">execute</code> issue in the next session.</p>
+
+  <div class="pagination">
+    
+      <a class="prev" href="/devlog-29-what-kind-of-threads">&laquo; Devlog 29 What Kind Of Threads</a>
+    
+    
+      <a class="next" href="/devlog-31-interpreting-words">Devlog 31 Interpreting Words &raquo;</a>
+    
+  </div>
+</article>
+      </section>
+    </div>
+  </div>
+
+   <footer>
+  <span>Copyright (c) 2021~ <a href="https://a1w.ca">Alexander Williams</a> and licensed under the permissive open source <a href="https://opensource.org/licenses/MIT">MIT</a> license.
+  </span>
+</footer>
+
+</body>
+
+</html>

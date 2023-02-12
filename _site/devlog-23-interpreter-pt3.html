@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+  <meta name="generator" content="Jekyll">
+
+  <title>Devlog 23 Interpreter Pt3</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link href="/atom.xml" type="application/atom+xml" rel="alternate" title="ATOM Feed" />
+</head>
+
+<body>
+  <div id="wrapper">
+    <header>
+  <div>
+    <a href="/">
+    
+      <h1>FiveForths</h1>
+    </a>
+    <p style="text-align: center;">32-bit RISC-V Forth for microcontrollers</p>
+    <div class="header-links">
+      <a href="https://github.com/aw/fiveforths"><h2 class="header-link">Code</h2></a>
+<a href="/archive"><h2 class="header-link">Archive</h2></a>
+<a href="/atom.xml"><h2 class="header-link">RSS</h2></a>
+<a href="https://github.com/aw/fiveforths/archive/refs/heads/master.zip"><h2 class="header-link">Download</h2></a>
+    </div>
+  </div>
+</header>
+    <div class="container">
+      <section id="main_content">
+        <article>
+  <h2>Devlog 23 Interpreter Pt3</h2>
+  <h1 id="december-24-2022">December 24, 2022</h1>
+
+<ol>
+  <li><a href="#log-23">Log 23</a></li>
+  <li><a href="#terminal-input-buffer">Terminal input buffer</a></li>
+  <li><a href="#indexes-pt2">Indexes pt2</a></li>
+  <li><a href="#closing-thoughts">Closing thoughts</a></li>
+</ol>
+
+<h3 id="log-23">Log 23</h3>
+
+<p>The plan today was to move the interpreter forward, but I discovered a design flaw in the terminal input buffer.</p>
+
+<h3 id="terminal-input-buffer">Terminal input buffer</h3>
+
+<p>In the last session, we were already processing the backspace character to “erase” characters from the <code class="language-plaintext highlighter-rouge">TIB</code>, but we haven’t even added characters to the <code class="language-plaintext highlighter-rouge">TIB</code> yet.</p>
+
+<p>The idea was to add characters to the <code class="language-plaintext highlighter-rouge">TIB</code> as they arrive through the UART, to check them individually, and process them until a <em>newline</em> is seen, which would indicate the end of a command (unless in compile mode). That’s typically how <strong>Forth</strong> works:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>1 1 + .&lt;enter&gt;2  ok
+</code></pre></div></div>
+
+<p>The approach used for reading a token (a word from the buffer) is to read backwards from the <code class="language-plaintext highlighter-rouge">TOIN</code> variable until a <em>space</em> character is found, and keep track of the length of the word. Then you move the address in <code class="language-plaintext highlighter-rouge">TOIN</code> backwards to where that word starts.</p>
+
+<p>This works, but combined with the reference interpreter implementation (<em>derzforth</em> which copies <em>sectorforth</em> which assumes keyboard entry), we have a few problems:</p>
+
+<ol>
+  <li>UART characters sometimes get lost</li>
+  <li>The buffer won’t hold multiline definitions</li>
+  <li>The data stack is not even used!</li>
+</ol>
+
+<p>I’ll explain each issue in the order listed above:</p>
+
+<h4 id="1-uart-characters-missing">1. UART characters missing</h4>
+
+<p>You see, as our reference design suggests, we’re forced to process each character as it arrives over the UART. If there’s any kind of delay in processing, or if characters arrive too quickly, they will be lost. This happens when “pasting” or “uploading” code over a slow UART.</p>
+
+<h4 id="2-no-multiline">2. No multiline</h4>
+
+<p>For a multiline definition, you want to ignore the <em>newline</em> character and just keep going until you get the <em>semicolon</em>. The reference design checks each character as it arrives, and then uses the <em>newline</em> as a separator thus making it impossible to hold a multiline definition.</p>
+
+<h4 id="3-no-data-stack">3. No data stack!</h4>
+
+<p>A typical <strong>Forth</strong> stores words on the <em>data stack</em>, and executes words based on what’s stored in there. The reference interpreter design does not even use the stack - at all.</p>
+
+<p>I plan to fix these issues in a future session, once the <code class="language-plaintext highlighter-rouge">v1</code> of this implementation is complete.</p>
+
+<h3 id="indexes-pt2">Indexes pt2</h3>
+
+<p>Upon reviewing my <em>Indexes</em> idea from <em>devlog 22</em>, I decided to also put this on hold until I’ve completed the <code class="language-plaintext highlighter-rouge">v1</code> implementation of this Forth. I realize I might need to undo a lot of code in order to go back and implement indexing and alternative buffering, but for the moment I just want to get a working Forth haha.</p>
+
+<h3 id="closing-thoughts">Closing thoughts</h3>
+
+<p>This session was brief, again with no code, but I’ll get to that in the next session, where I plan to finish the interpreter and the <code class="language-plaintext highlighter-rouge">lookup</code> function.</p>
+
+  <div class="pagination">
+    
+      <a class="prev" href="/devlog-22-indexes">&laquo; Devlog 22 Indexes</a>
+    
+    
+      <a class="next" href="/devlog-24-checking-numbers">Devlog 24 Checking Numbers &raquo;</a>
+    
+  </div>
+</article>
+      </section>
+    </div>
+  </div>
+
+   <footer>
+  <span>Copyright (c) 2021~ <a href="https://a1w.ca">Alexander Williams</a> and licensed under the permissive open source <a href="https://opensource.org/licenses/MIT">MIT</a> license.
+  </span>
+</footer>
+
+</body>
+
+</html>

@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+  <meta name="generator" content="Jekyll">
+
+  <title>Devlog 20 Interpreter</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link href="/atom.xml" type="application/atom+xml" rel="alternate" title="ATOM Feed" />
+</head>
+
+<body>
+  <div id="wrapper">
+    <header>
+  <div>
+    <a href="/">
+    
+      <h1>FiveForths</h1>
+    </a>
+    <p style="text-align: center;">32-bit RISC-V Forth for microcontrollers</p>
+    <div class="header-links">
+      <a href="https://github.com/aw/fiveforths"><h2 class="header-link">Code</h2></a>
+<a href="/archive"><h2 class="header-link">Archive</h2></a>
+<a href="/atom.xml"><h2 class="header-link">RSS</h2></a>
+<a href="https://github.com/aw/fiveforths/archive/refs/heads/master.zip"><h2 class="header-link">Download</h2></a>
+    </div>
+  </div>
+</header>
+    <div class="container">
+      <section id="main_content">
+        <article>
+  <h2>Devlog 20 Interpreter</h2>
+  <h1 id="december-15-2022">December 15, 2022</h1>
+
+<ol>
+  <li><a href="#log-20">Log 20</a></li>
+  <li><a href="#fixme">Fixme</a></li>
+  <li><a href="#error-handling">Error handling</a></li>
+  <li><a href="#more-initialization">More initialization</a></li>
+  <li><a href="#interpreter">Interpreter</a></li>
+  <li><a href="#closing-thoughts">Closing thoughts</a></li>
+</ol>
+
+<h1 id="log-20">Log 20</h1>
+
+<p>I didn’t realize but it’s been exactly 1 month since I’ve reloaded this project and started hacking on it again. I’m quite happy with the progress so far, even though I only dedicate a couple hours per session to this project.</p>
+
+<p>This session’s focus is on starting to make something that looks like a <strong>Forth</strong> interpreter.</p>
+
+<h3 id="fixme">Fixme</h3>
+
+<p>Before I start on the interpreter, let’s get rid of a few <code class="language-plaintext highlighter-rouge"># FIXME</code> comments in the code (and actually fix them).</p>
+
+<p>The first are a couple of missing bounds checks in <code class="language-plaintext highlighter-rouge">COLON</code>. First we want to ensure our token size is never larger than 32 characters because we only have 5 bits to store the size (<code class="language-plaintext highlighter-rouge">2^5</code>).</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    li t0, 32           # load max token size  (2^5 = 32) in temporary
+    bgtu a1, t0, error  # error if token size is greater than 32
+</code></pre></div></div>
+
+<p>Next, when we store a word, we need 3 available cells (link, hash, codeword). We want to check this <em>before</em> we update any important values in memory:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    # bounds check on new word memory location
+    addi t4, t2, 3*CELL # prepare to move the HERE pointer to the end of the word
+    li t5, PAD          # load out of bounds memory address (PAD)
+    bgt t4, t5, error   # error if the memory address is out of bounds
+</code></pre></div></div>
+
+<p>Incidentally, the out of bounds memory address is where our <code class="language-plaintext highlighter-rouge">PAD</code> starts, and the space required for the word will end exactly at the new <code class="language-plaintext highlighter-rouge">HERE</code> address.</p>
+
+<p>Finally, we’ll repeat this bounds check but only with 1 CELL, for the <code class="language-plaintext highlighter-rouge">exit</code> memory location (<code class="language-plaintext highlighter-rouge">SEMI</code>):</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    # bounds check on the exit memory location
+    addi t2, t2, CELL   # prepare to move the HERE pointer by 1 CELL
+    li t3, PAD          # load out of bounds memory address (PAD)
+    bgt t2, t3, error   # error if the memory address is out of bounds
+</code></pre></div></div>
+
+<p>Well in total those were a lot of changes for bounds check (and fixing a bug I discovered), but before we get to the interpreter let’s add some UART code to the <code class="language-plaintext highlighter-rouge">error</code> function (another <code class="language-plaintext highlighter-rouge"># FIXME</code>).</p>
+
+<h3 id="error-handling">Error handling</h3>
+
+<p>I didn’t try very hard for this one and simply copied exactly what <em>derzforth</em> does:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># print an error message to the UART
+error:
+    li a0, ' '
+    call uart_put
+    li a0, '?'
+    call uart_put
+    li a0, '\n'
+    call uart_put
+
+    j reset
+</code></pre></div></div>
+
+<p>Once an error is hit, the next step is to reset everything, we need to reinitialize the stack pointers, variables, state, etc.. which is what we’ve done in the <code class="language-plaintext highlighter-rouge">reset</code> function, so let’s just jump there.</p>
+
+<h3 id="more-initialization">More initialization</h3>
+
+<p>In the <code class="language-plaintext highlighter-rouge">reset</code> function, there’s a bit more initialization required. The main thing we were missing is zero-filling the terminal input buffer (<code class="language-plaintext highlighter-rouge">TIB</code>):</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>tib_init:
+    # initialize TOIN variable
+    li t0, TIB          # load TIB memory address
+    li t1, TOIN         # load TOIN variable
+    li t2, TIB_TOP      # load TIB_TOP variable
+    sw t0, 0(t1)        # initialize TOIN variable to contain TIB start address
+tib_zerofill:
+    # initialize the TIB
+    beq t2, t0,tib_done # loop until TIB_TOP == TIB
+    addi t2, t2, -CELL  # decrement TIB_TOP by 1 CELL
+    sw zero, 0(t2)      # zero-fill the memory address
+    j tib_zerofill      # repeat
+tib_done:
+    j interpreter       # jump to the main interpreter REPL
+</code></pre></div></div>
+
+<p>This is somewhat different from <em>derzforth</em> and <em>sectorforth</em>. In this case we’re starting from the top of the <code class="language-plaintext highlighter-rouge">TIB</code> (highest memory address), and filling it with 1 CELL (4 bytes on 32-bit RISC-V), decrementing the memory address and then looping until the entire <code class="language-plaintext highlighter-rouge">TIB</code> is filled with zeros.</p>
+
+<p>Since we only allocated a stack size of 256 Bytes for the <code class="language-plaintext highlighter-rouge">TIB</code>, that equates to just 64 CELLs (i.e: 64 loop iterations) to clear it out. It’s reasonably fast.</p>
+
+<p>We also need to make sure the <code class="language-plaintext highlighter-rouge">TOIN</code> variable gets reinitialized, so I just moved that part from <code class="language-plaintext highlighter-rouge">reset</code> to <code class="language-plaintext highlighter-rouge">tib_init</code>.</p>
+
+<h3 id="interpreter">Interpreter</h3>
+
+<p>OK so we’ve cleared up all our <code class="language-plaintext highlighter-rouge"># FIXME</code>s, now we can <em>jump</em> to the interpreter (haha, see what I did there?).</p>
+
+<p>Here’s what I’ve got so far:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># here's where the program starts (the interpreter)
+interpreter:
+    call uart_get       # read a character from UART
+    call uart_put       # send the character to UART
+
+    # FIXME: validate the character
+    j interpreter
+</code></pre></div></div>
+
+<p>Let’s see.. how should this work?</p>
+
+<p>The first thing we want to do is read a character and echo it back (so we can see what we’re typing). Next, we want to validate the character by checking if it’s a comment, backspace, or newline, and printable character. At each point we’ll add the character to the terminal input buffer (<code class="language-plaintext highlighter-rouge">TIB</code>) until we’ve gotten a full word (token).</p>
+
+<p>If we get a newline and we’re currently compiling a word then we’ll just ignore it until the semicolon is given. That will allow us to write multi-line definitions and even “upload” them via UART. If all is good, then we’ll jump into the process to validate the token, hash it, search for it in the dictionary, and either execute or compile based on the <code class="language-plaintext highlighter-rouge">STATE</code> variable or immediate status of the word.</p>
+
+<p>Whew, that’s a mouthful but it’s pretty straightforward. I think I’ll need to write a <code class="language-plaintext highlighter-rouge">lookup</code> function but we’ll defer that for later.</p>
+
+<h3 id="closing-thoughts">Closing thoughts</h3>
+
+<p>So far quite a few changes were made in this session, a lot of code was re-organized and moved around, but everything still compiles and works perfectly so far (I think?).</p>
+
+<p>I was going to get right into character validation, but I want to take a break to think more about this (and re-read my Forth books). I’ll get back to character validation in the next session.</p>
+
+  <div class="pagination">
+    
+      <a class="prev" href="/devlog-19-get-put-key-emit">&laquo; Devlog 19 Get Put Key Emit</a>
+    
+    
+      <a class="next" href="/devlog-21-interpreter-pt2">Devlog 21 Interpreter Pt2 &raquo;</a>
+    
+  </div>
+</article>
+      </section>
+    </div>
+  </div>
+
+   <footer>
+  <span>Copyright (c) 2021~ <a href="https://a1w.ca">Alexander Williams</a> and licensed under the permissive open source <a href="https://opensource.org/licenses/MIT">MIT</a> license.
+  </span>
+</footer>
+
+</body>
+
+</html>

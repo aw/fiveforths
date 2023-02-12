@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+  <meta name="generator" content="Jekyll">
+
+  <title>Devlog 37 A Release Or Two</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link href="/atom.xml" type="application/atom+xml" rel="alternate" title="ATOM Feed" />
+</head>
+
+<body>
+  <div id="wrapper">
+    <header>
+  <div>
+    <a href="/">
+    
+      <h1>FiveForths</h1>
+    </a>
+    <p style="text-align: center;">32-bit RISC-V Forth for microcontrollers</p>
+    <div class="header-links">
+      <a href="https://github.com/aw/fiveforths"><h2 class="header-link">Code</h2></a>
+<a href="/archive"><h2 class="header-link">Archive</h2></a>
+<a href="/atom.xml"><h2 class="header-link">RSS</h2></a>
+<a href="https://github.com/aw/fiveforths/archive/refs/heads/master.zip"><h2 class="header-link">Download</h2></a>
+    </div>
+  </div>
+</header>
+    <div class="container">
+      <section id="main_content">
+        <article>
+  <h2>Devlog 37 A Release Or Two</h2>
+  <h1 id="january-10">January 10</h1>
+
+<ol>
+  <li><a href="#log-37">Log 37</a></li>
+  <li><a href="#a-release-or-two">A release or two</a></li>
+  <li><a href="#why-so-much-work">Why so much work</a></li>
+  <li><a href="#closing-thoughts">Closing thoughts</a></li>
+</ol>
+
+<h3 id="log-37">Log 37</h3>
+
+<p>In this session I’ll discuss the latest changes I’ve made to the source code, and provide information on the releases.</p>
+
+<h3 id="a-release-or-two">A release or two</h3>
+
+<p>In the last day I’ve published <a href="https://github.com/aw/fiveforths/releases">2 releases</a> to GitHub. The first, <code class="language-plaintext highlighter-rouge">v0.1</code> was a partial failure because I didn’t realize the <code class="language-plaintext highlighter-rouge">firmware.bin</code> did not automatically jump to the <code class="language-plaintext highlighter-rouge">_start</code> label. I fixed this by moving it to the <code class="language-plaintext highlighter-rouge">src/03-interrupts.s</code> source file:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># Ensure the _start entry label is defined first
+.text
+.global _start
+_start:
+    j boot
+</code></pre></div></div>
+
+<p>The <em>backspace</em> issue where typing it would completely mess up the <code class="language-plaintext highlighter-rouge">TIB</code> is now fixed. Well it turns out there was a line of code which shouldn’t have been there (so I removed it):</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>-    sw a1, 0(t3)            # store new TOIN value in memory
+</code></pre></div></div>
+
+<p>This code was storing the updated <code class="language-plaintext highlighter-rouge">TOIN</code> address back to memory, before we even started processing the token. Oops!</p>
+
+<p>Another change was to add the <code class="language-plaintext highlighter-rouge">lit</code> primitive, which makes it possible to add numbers to a colon definition. For example, this works:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>: add5 5 + ;
+10 add5
+</code></pre></div></div>
+
+<p>The stack pointer would then have the decimal value <code class="language-plaintext highlighter-rouge">15</code>. Here’s the code for <code class="language-plaintext highlighter-rouge">LIT</code>, it’s inserted right after <code class="language-plaintext highlighter-rouge">NAND</code> and <code class="language-plaintext highlighter-rouge">EXIT</code>:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># lit ( -- n )          Get the next word from IP and push it to the stack, increment IP
+defcode "lit", 0x03888c4e, LIT, NAND
+    lw t0, 0(s1)        # load the memory address from IP into temporary
+    PUSH t0             # push the literal to the top of the stack
+    addi s1, s1, CELL   # increment IP by 1 CELL
+    NEXT
+</code></pre></div></div>
+
+<p>There’s some other code added to the <code class="language-plaintext highlighter-rouge">push_number</code> routine which handles inserting the <code class="language-plaintext highlighter-rouge">LIT</code> codeword address to a colon definition (in memory), followed by the actual number, if the <code class="language-plaintext highlighter-rouge">STATE</code> of the interpreter was set to <code class="language-plaintext highlighter-rouge">1</code> (<em>compile mode</em>).</p>
+
+<p>Finally, that release saw the initial introduction of some actual <em>documentation</em> in the form of a <code class="language-plaintext highlighter-rouge">README</code>. It’s not complete and not final, as I plan to introduce proper documentation in the near future.</p>
+
+<p>The second release, <code class="language-plaintext highlighter-rouge">v0.2</code> is a bit more polished and has a few improvements.</p>
+
+<p>The <em>carriage return</em> and <em>zero</em> control characters are now completely ignored in the <code class="language-plaintext highlighter-rouge">interpreter</code> function:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># ignore specific characters
+mv t4, zero                                 # load 0x00 zero into temporary
+beq a0, t4, interpreter                     # ignore the character if it matches
+li t4, CHAR_CARRIAGE                        # load 0x0D carriage return into temporary
+beq a0, t4, interpreter                     # ignore the character if it matches
+</code></pre></div></div>
+
+<p>We’re ignoring only those ones and not the entire set of <em>non-printable</em> characters because the others aren’t really problematic, but I may be wrong. It’s not a big deal either way, and can easily be changed if needed.</p>
+
+<p>The location of the <code class="language-plaintext highlighter-rouge">_start</code> entry symbol was revised and moved to the top of the <code class="language-plaintext highlighter-rouge">fiveforths.s</code> source file. This guarantees it’ll be located at the start of Flash (<code class="language-plaintext highlighter-rouge">0x08000000</code>).</p>
+
+<p>There’s now a boot message when you first boot/reset the microcontroller, the terminal will display this uneventful greeting:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>FiveForths v0.2, Copyright (c) 2021~ Alexander Williams, https://a1w.ca
+
+</code></pre></div></div>
+
+<p>We now have a visual indicator that the <em>Forth</em> is booted and ready to accept commands. Yay!</p>
+
+<p>The last three changes are mostly cosmetic but equally important:</p>
+
+<p>First, I moved all these devlog <em>posts</em> and their related assets, html pages, build files, etc to the <code class="language-plaintext highlighter-rouge">gh-pages</code> git branch. The goal was to cleanup and reorganize the repository so the code remains in the <code class="language-plaintext highlighter-rouge">master</code> branch, separate from the <a href="https://fiveforths.a1w.ca">devlogs</a> website.</p>
+
+<p>Next, the <code class="language-plaintext highlighter-rouge">Makefile</code> was heavily modified to support building different types of boards with different types of microcontrollers. Some code was split out from the <code class="language-plaintext highlighter-rouge">src/</code> source files and moved into <code class="language-plaintext highlighter-rouge">src/mcus/gd32vf103/mcu.s</code>, and other code was moved to <code class="language-plaintext highlighter-rouge">src/boards/longan-nano-lite/board.s</code>. I also added a simplified linker script for each board (ex: the <code class="language-plaintext highlighter-rouge">longan-nano</code> has slightly more RAM and double the FLASH of the <code class="language-plaintext highlighter-rouge">longan-nano-lite</code>).</p>
+
+<p>Now it’s possible to specify command-line variables for <code class="language-plaintext highlighter-rouge">make</code> to create various firmware binaries. Here are a few examples:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>make build BOARD=longan-nano
+make build BOARD=longan-nano-lite
+</code></pre></div></div>
+
+<p>There’s a few other options but they’ll be described in the upcoming documentation.</p>
+
+<p>Finally, I added a <a href="https://docs.github.com/en/actions">GitHub Action</a> to automate the firmware builds from this repository. At the moment it builds <code class="language-plaintext highlighter-rouge">longan-nano</code> and <code class="language-plaintext highlighter-rouge">longan-nano-lite</code> firmware, generates the sha256 hash, and uploads them as an artifact of the build process. I then use those exact files in <a href="https://github.com/aw/fiveforths/releases/tag/v0.2">the release</a>. This means you don’t even need the whole RISC-V setup to try <em>FiveForths</em>, just grab a binary, flash it, and get to work.</p>
+
+<h3 id="why-so-much-work">Why so much work</h3>
+
+<p>Why put so much effort into a <em><a href="https://justforfunnoreally.dev/">just for fun</a></em> open source project?</p>
+
+<p>Well this project was <a href="https://hackaday.com/2023/01/08/forth-cracks-risc-v">discovered by Hackaday.io</a> and <a href="https://www.hackster.io/news/alexander-williams-fiveforths-is-a-hand-written-risc-v-assembly-forth-for-microcontrollers-573b5f0ed9f8">written about on Hackster.io</a>, so I suddenly found myself with a pressing need to take this a bit more seriously. I want to make it easier for people to try it, learn more about it, and possibly even provide contributions. Did I mention it’s fun?</p>
+
+<h3 id="closing-thoughts">Closing thoughts</h3>
+
+<p>I want to make a random shoutout to <a href="https://github.com/hasheddan">Daniel Mangum</a> who did a fantastic job of <a href="https://danielmangum.com/categories/risc-v-bytes/">documenting some RISC-V</a> things.</p>
+
+<p>The next release will include the updated documentation which I believe will be very helpful for people who want a better idea about <em>FiveForths</em> without browsing through the source code. It will also contain some <strong>Forth</strong> code examples and other useful information.</p>
+
+<p>In the next coding session, I’ll likely focus on the remaining open <a href="https://github.com/aw/fiveforths/issues">GitHub issues</a>, which I labeled as “enhancements” because they aren’t critical to the functioning of <em>FiveForths</em>.</p>
+
+  <div class="pagination">
+    
+      <a class="prev" href="/devlog-36-from-dtc-to-itc">&laquo; Devlog 36 From Dtc To Itc</a>
+    
+    
+      <a class="next" href="/devlog-38-release-v03">Devlog 38 Release V03 &raquo;</a>
+    
+  </div>
+</article>
+      </section>
+    </div>
+  </div>
+
+   <footer>
+  <span>Copyright (c) 2021~ <a href="https://a1w.ca">Alexander Williams</a> and licensed under the permissive open source <a href="https://opensource.org/licenses/MIT">MIT</a> license.
+  </span>
+</footer>
+
+</body>
+
+</html>

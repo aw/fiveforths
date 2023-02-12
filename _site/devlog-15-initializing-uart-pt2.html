@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+  <meta name="generator" content="Jekyll">
+
+  <title>Devlog 15 Initializing Uart Pt2</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link href="/atom.xml" type="application/atom+xml" rel="alternate" title="ATOM Feed" />
+</head>
+
+<body>
+  <div id="wrapper">
+    <header>
+  <div>
+    <a href="/">
+    
+      <h1>FiveForths</h1>
+    </a>
+    <p style="text-align: center;">32-bit RISC-V Forth for microcontrollers</p>
+    <div class="header-links">
+      <a href="https://github.com/aw/fiveforths"><h2 class="header-link">Code</h2></a>
+<a href="/archive"><h2 class="header-link">Archive</h2></a>
+<a href="/atom.xml"><h2 class="header-link">RSS</h2></a>
+<a href="https://github.com/aw/fiveforths/archive/refs/heads/master.zip"><h2 class="header-link">Download</h2></a>
+    </div>
+  </div>
+</header>
+    <div class="container">
+      <section id="main_content">
+        <article>
+  <h2>Devlog 15 Initializing Uart Pt2</h2>
+  <h1 id="december-7-2022">December 7, 2022</h1>
+
+<ol>
+  <li><a href="#log-15">Log 15</a></li>
+  <li><a href="#initializing-uart-pt2">Initializing UART pt2</a></li>
+  <li><a href="#closing-thoughts">Closing thoughts</a></li>
+</ol>
+
+<h2 id="log-15">Log 15</h2>
+
+<p>The goal today is to continue with the UART initialization and validate the register values in <code class="language-plaintext highlighter-rouge">GDB</code>.</p>
+
+<h3 id="initializing-uart-pt2">Initializing UART pt2</h3>
+
+<p>After enabling the clocks, the next step is to set the baud rate for <code class="language-plaintext highlighter-rouge">USART0</code>. From the <a href="https://dl.sipeed.com/LONGAN/Nano/DOC/GD32VF103_User_Manual_EN_V1.2.pdf">GD32VF103 manual</a>, we can find the base address of <code class="language-plaintext highlighter-rouge">USART0</code> to be <code class="language-plaintext highlighter-rouge">0x4001 3800</code>, and the <em>Baud rate register</em> is at offset <code class="language-plaintext highlighter-rouge">0x08</code>, let’s remember that for later.</p>
+
+<p>Since we haven’t configured the device other than enabling some clocks, it’s a good idea to confirm the current clock speed by reading the <em>RCU Control register</em> at address <code class="language-plaintext highlighter-rouge">0x4002 1000</code> with offset <code class="language-plaintext highlighter-rouge">0x00</code>:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>(gdb) x/t 0x40021000+0x00
+0x40021000:	00000000000000000110001010000011
+</code></pre></div></div>
+
+<p>Let’s clear up that formatting:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>00000000 00000000 01100010 10000011
+</code></pre></div></div>
+
+<p>According to the above user manual:</p>
+
+<ul>
+  <li>bit 0 means the internal 8MHz oscillator (IRC8M) is enabled</li>
+  <li>bit 1 means it’s stable</li>
+  <li>bit 16 means the external high speed oscillator (HXTAL) is disabled</li>
+</ul>
+
+<p>Let’s also read the <em>Clock register 0</em> at offset <code class="language-plaintext highlighter-rouge">0x04</code>:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>(gdb) x/t 0x40021000+0x04
+0x40021004:	00000000000000000000000000000000
+</code></pre></div></div>
+
+<p>All zeroes! What this means is all the clocks are running at 8MHz with the internal oscillator, so we’ll use that to calculate the baud rate divider for our 115200 bauds (symbols per seconds) setting. In the future we might want to bump that to the max 108MHz using the external oscillator. Let’s continue with <code class="language-plaintext highlighter-rouge">uart_init:</code></p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    # set the baud rate: USARTDIV = frequency (8 MHz) / baud rate (115200 bps)
+    li t0, 0x40013800   # load USART0 base address
+    li t1, ((8000000/115200) &amp; 0x0000fff0) | ((8000000/115200) &amp; 0x0000000f) # load baud rate divider
+    sw t1, 0x08(t0)     # store the value in the Baud rate register (USART_BAUD)
+</code></pre></div></div>
+
+<p>And when we inspect with <code class="language-plaintext highlighter-rouge">GDB</code>:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>(gdb) x/th 0x40013800+0x08
+0x40013808:    0000000001000101
+(gdb) x/x 0x40013800+0x08
+0x40013808:    0x0045
+</code></pre></div></div>
+
+<p>Now let’s explain what just happened there. Once again, according to the above user manual, there is a way to calculate the <code class="language-plaintext highlighter-rouge">USARTDIV</code> in order for the MCU to generate the baud rate we want. The method is somewhat complex and is usually satisfied by a simpler <code class="language-plaintext highlighter-rouge">frequency / baud rate</code>. However I wanted to do it “correctly” so I used the above formula, which isolates the first 4 bits (<code class="language-plaintext highlighter-rouge">0:3</code>) as the fractional part using the mask <code class="language-plaintext highlighter-rouge">0x0000000f</code>, and the next 12 bits (<code class="language-plaintext highlighter-rouge">4:15</code>) using the mask <code class="language-plaintext highlighter-rouge">0x0000fff0</code>. Finally it performs a bitwise <code class="language-plaintext highlighter-rouge">OR</code> of the integer and fraction in order to give us the exact value to be stored in the <em>Baud rate register</em>.</p>
+
+<p>When we examine the memory address <code class="language-plaintext highlighter-rouge">0x40013800</code> at the offset <code class="language-plaintext highlighter-rouge">0x08</code>, we can see the result is exactly <code class="language-plaintext highlighter-rouge">0x0045</code>. I know, I could have just hardcoded <code class="language-plaintext highlighter-rouge">0x0045</code> but that would make it much more difficult to change the frequency/baud rate in the future.</p>
+
+<h3 id="closing-thoughts">Closing thoughts</h3>
+
+<p>I’ll end this session here. Next time I’ll setup the <code class="language-plaintext highlighter-rouge">data/stop/parity/mode/flowctrl</code> bits in the <em>USART Control register</em> and maybe finally configure the GPIOs.</p>
+
+  <div class="pagination">
+    
+      <a class="prev" href="/devlog-14-initializing-uart">&laquo; Devlog 14 Initializing Uart</a>
+    
+    
+      <a class="next" href="/devlog-16-initializing-uart-pt3">Devlog 16 Initializing Uart Pt3 &raquo;</a>
+    
+  </div>
+</article>
+      </section>
+    </div>
+  </div>
+
+   <footer>
+  <span>Copyright (c) 2021~ <a href="https://a1w.ca">Alexander Williams</a> and licensed under the permissive open source <a href="https://opensource.org/licenses/MIT">MIT</a> license.
+  </span>
+</footer>
+
+</body>
+
+</html>

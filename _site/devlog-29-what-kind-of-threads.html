@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+  <meta name="generator" content="Jekyll">
+
+  <title>Devlog 29 What Kind Of Threads</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link href="/atom.xml" type="application/atom+xml" rel="alternate" title="ATOM Feed" />
+</head>
+
+<body>
+  <div id="wrapper">
+    <header>
+  <div>
+    <a href="/">
+    
+      <h1>FiveForths</h1>
+    </a>
+    <p style="text-align: center;">32-bit RISC-V Forth for microcontrollers</p>
+    <div class="header-links">
+      <a href="https://github.com/aw/fiveforths"><h2 class="header-link">Code</h2></a>
+<a href="/archive"><h2 class="header-link">Archive</h2></a>
+<a href="/atom.xml"><h2 class="header-link">RSS</h2></a>
+<a href="https://github.com/aw/fiveforths/archive/refs/heads/master.zip"><h2 class="header-link">Download</h2></a>
+    </div>
+  </div>
+</header>
+    <div class="container">
+      <section id="main_content">
+        <article>
+  <h2>Devlog 29 What Kind Of Threads</h2>
+  <h1 id="january-02-2023">January 02, 2023</h1>
+
+<ol>
+  <li><a href="#log-29">Log 29</a></li>
+  <li><a href="#what-kind-of-threads">What kind of threads</a></li>
+  <li><a href="#adjusting-for-dtc">Adjusting for DTC</a></li>
+  <li><a href="#closing-thoughts">Closing thoughts</a></li>
+</ol>
+
+<h3 id="log-29">Log 29</h3>
+
+<p>Happy New Year! In my last post, I was clearly confused about the type of jumps (direct/indirect) my Forth was making, and in fact I kinda of still have no idea what I’m talking about. In this session I’ll try to clear up a few things and hopefully set myself in the right direction for completing this Forth.</p>
+
+<h3 id="what-kind-of-threads">What kind of threads</h3>
+
+<p>The main question I’ve been asking myself since I first started writing this <strong>Forth</strong> is: “What kind of threading does it use?”. There’s a few types discussed in detail in <a href="https://www.bradrodriguez.com/papers/moving1.htm">Moving Forth by Brad Rodriguez</a>:</p>
+
+<ul>
+  <li>Indirect Threaded Code (ITC), with address codefields</li>
+  <li>Direct Threaded Code (DTC), with <code class="language-plaintext highlighter-rouge">jump</code> or <code class="language-plaintext highlighter-rouge">call</code> codefields</li>
+  <li>Subrouting Threaded Code (STC), with <code class="language-plaintext highlighter-rouge">call</code> codefields</li>
+  <li>Token Threaded Code (TTC), using a token lookup table</li>
+</ul>
+
+<p>And probably a bunch of other hybrid approaches in between (ex: Segment Threaded Code).</p>
+
+<p>After some careful reading over the last few days, I realized <em>derzforth</em> is designed using <code class="language-plaintext highlighter-rouge">ITC</code> but performing double-indirect jumps, <em>sectorforth</em> is designed using <code class="language-plaintext highlighter-rouge">DTC</code> which literally jumps directly to an address in a register but also behaves as an <code class="language-plaintext highlighter-rouge">ITC</code> for colon definitions, and <em>jonesforth</em> is designed using <code class="language-plaintext highlighter-rouge">ITC</code> and a indirect jumps as well.</p>
+
+<p>In the end, everyone’s use-case is different, but <em>Brad Rodriguez</em> highlighted something important:</p>
+
+<blockquote>
+  <p><em>The only way to know for sure is to write sample code</em></p>
+</blockquote>
+
+<p>So I’m going to take that approach and test different types. I’ll start with adjusting my code for <code class="language-plaintext highlighter-rouge">DTC</code> with jump instructions, since I think I’m already halfway there.</p>
+
+<h3 id="adjusting-for-dtc">Adjusting for DTC</h3>
+
+<p>The first step is to add one level of indirection when executing a word. We don’t want to jump directly to the address stored in the <code class="language-plaintext highlighter-rouge">IP</code> (<code class="language-plaintext highlighter-rouge">s1</code>) register. We want to jump to the address pointed by it, so in <code class="language-plaintext highlighter-rouge">execute</code> we’ll make the following change:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>-    la s1, ok               # load the address of the interpreter into the IP register
++    la s1, .loop            # load the address of the interpreter into the IP register
+</code></pre></div></div>
+
+<p>and then outside of that function we’ll add a memory address for that:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>.loop: .word ok             # indirect jump to interpreter after executing a word
+</code></pre></div></div>
+
+<p>Now I’m not sure yet if this is exactly what should happen. At the moment it is jumping to the <code class="language-plaintext highlighter-rouge">ok</code> function, which will print <code class="language-plaintext highlighter-rouge">ok</code> and reset the <code class="language-plaintext highlighter-rouge">TIB</code> before jumping back to the <code class="language-plaintext highlighter-rouge">interpreter_start</code> function. Perhaps I don’t want to reset the <code class="language-plaintext highlighter-rouge">TIB</code> just yet.</p>
+
+<p>The next step is to modify the <code class="language-plaintext highlighter-rouge">NEXT</code> macro so it actually performs that indirect jump:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>-    mv a0, s1           # load memory address from IP into W
++    lw a0, 0(s1)        # load memory address from IP into W
+</code></pre></div></div>
+
+<p>Without this change, we would be jumping to the address of <code class="language-plaintext highlighter-rouge">.loop</code> instead of the address pointed to by <code class="language-plaintext highlighter-rouge">.loop</code> (aka <code class="language-plaintext highlighter-rouge">ok</code>). This is important because <code class="language-plaintext highlighter-rouge">COLON</code> defined words will also need this indirection. Let’s modify <code class="language-plaintext highlighter-rouge">COLON</code> while we’re at it:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>-    la a2, docol        # load the codeword address into Y working register
++    la a2, .addr        # load the codeword address into Y working register
+</code></pre></div></div>
+
+<p>It’s jumping to a different address, which I defined below:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>.addr: .word docol      # indirect jump to docol from a colon definition
+</code></pre></div></div>
+
+<p>This is similar to the <code class="language-plaintext highlighter-rouge">execute</code> function and will allow <code class="language-plaintext highlighter-rouge">NEXT</code> to behave the same way for both types of words (primitives and colon words). At least, that’s what I understood so far.</p>
+
+<p>I can confirm this by typing <code class="language-plaintext highlighter-rouge">latest&lt;Enter&gt;</code> in the terminal:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>latest ok
+</code></pre></div></div>
+
+<p>and then inspecting the <code class="language-plaintext highlighter-rouge">TOS</code> (<code class="language-plaintext highlighter-rouge">s3</code>) register to see what it contains:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>(gdb) i r s3
+s3             0x80004f0	134218992
+(gdb) x/xw 0x080004f0
+0x80004f0 &lt;word_SEMI&gt;:	0x080004e4
+</code></pre></div></div>
+
+<p>Perfect! It contains the memory address which points to the <code class="language-plaintext highlighter-rouge">LATEST</code> primitive word defined in the <code class="language-plaintext highlighter-rouge">fiveforths.s</code>: <code class="language-plaintext highlighter-rouge">SEMI</code>.</p>
+
+<h3 id="closing-thoughts">Closing thoughts</h3>
+
+<p>I believe the above implemention is not complete, and it’s likely linked to incorrect assignment to the <code class="language-plaintext highlighter-rouge">IP</code> instruction pointer, or the resetting of the <code class="language-plaintext highlighter-rouge">TIB</code> (which makes no sense after only executing 1 word)… In the next session I’ll focus on fixing that issue before jumping to <em>compile mode</em>.</p>
+
+  <div class="pagination">
+    
+      <a class="prev" href="/devlog-28-execute">&laquo; Devlog 28 Execute</a>
+    
+    
+      <a class="next" href="/devlog-30-cleanup">Devlog 30 Cleanup &raquo;</a>
+    
+  </div>
+</article>
+      </section>
+    </div>
+  </div>
+
+   <footer>
+  <span>Copyright (c) 2021~ <a href="https://a1w.ca">Alexander Williams</a> and licensed under the permissive open source <a href="https://opensource.org/licenses/MIT">MIT</a> license.
+  </span>
+</footer>
+
+</body>
+
+</html>

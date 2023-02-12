@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+  <meta name="generator" content="Jekyll">
+
+  <title>Devlog 18 Testing Uart</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link href="/atom.xml" type="application/atom+xml" rel="alternate" title="ATOM Feed" />
+</head>
+
+<body>
+  <div id="wrapper">
+    <header>
+  <div>
+    <a href="/">
+    
+      <h1>FiveForths</h1>
+    </a>
+    <p style="text-align: center;">32-bit RISC-V Forth for microcontrollers</p>
+    <div class="header-links">
+      <a href="https://github.com/aw/fiveforths"><h2 class="header-link">Code</h2></a>
+<a href="/archive"><h2 class="header-link">Archive</h2></a>
+<a href="/atom.xml"><h2 class="header-link">RSS</h2></a>
+<a href="https://github.com/aw/fiveforths/archive/refs/heads/master.zip"><h2 class="header-link">Download</h2></a>
+    </div>
+  </div>
+</header>
+    <div class="container">
+      <section id="main_content">
+        <article>
+  <h2>Devlog 18 Testing Uart</h2>
+  <h1 id="december-13-2022">December 13, 2022</h1>
+
+<ol>
+  <li><a href="#log-18">Log 18</a></li>
+  <li><a href="#testing-uart">Testing UART</a></li>
+  <li><a href="#looping-for-uart">Looping for UART</a></li>
+  <li><a href="#interrupt-initialization">Interrupt initialization</a></li>
+  <li><a href="#closing-thoughts">Closing thoughts</a></li>
+</ol>
+
+<h2 id="log-18">Log 18</h2>
+
+<p>After a few days deliberating on the best implementation for interrupts, I decided not to implement them just yet. I did implement a short test routine and I’m happy to report my UART code works!!</p>
+
+<h3 id="testing-uart">Testing UART</h3>
+
+<p>Before continuing, I wanted to be sure my UART works, so I borrowed the <code class="language-plaintext highlighter-rouge">getc/putc</code> code from <a href="https://github.com/theandrew168/derzforth">derzforth</a> and made some changes to it. The test simply waits for a character, then sends it back.</p>
+
+<p>The first thing is to load the base address of <code class="language-plaintext highlighter-rouge">USART0</code> register:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>_test_uart:
+    li t0, 0x40013800           # load USART0 base address
+</code></pre></div></div>
+
+<p>Next, I want a loop which checks the UART status register’s <code class="language-plaintext highlighter-rouge">RBNE</code> bit to see if the read buffer is empty or not, if yes then it loops, if not empty then it reads the character using <code class="language-plaintext highlighter-rouge">lb</code> (load byte):</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>uart_get_loop:
+    lw t1, 0x00(t0)             # load value from status register (USART_STAT)
+    andi t1, t1, (1 &lt;&lt; 5)       # load read data buffer not empty bit (RBNE)
+    beqz t1, uart_get_loop      # loop until ready to receive
+    lb a0, 0x04(t0)             # read character from data register (USART_DATA)
+</code></pre></div></div>
+
+<p>We do something similar to send the character back:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>uart_put_loop:
+    lw t1, 0x00(t0)             # load value from status register (USART_STAT)
+    andi t1, t1, (1 &lt;&lt; 7)       # load transmit data buffer empty bit (TBE)
+    beqz t1, uart_put_loop      # loop until ready to send
+    sb a0, 0x04(t0)             # send character to data register (USART_DATA)
+
+    ret
+</code></pre></div></div>
+
+<p>In this case we check the <code class="language-plaintext highlighter-rouge">TBE</code> bit to see if the transmit buffer is empty or not, and then send the character back and return from the <code class="language-plaintext highlighter-rouge">_test</code> function.</p>
+
+<p>Since most of the UART and GPIO code is specific to the <code class="language-plaintext highlighter-rouge">GD32VF103</code> microcontroller, I decided to move it to its own file named <code class="language-plaintext highlighter-rouge">gd32vf103.s</code> and then include it from <code class="language-plaintext highlighter-rouge">fiveforths.s</code></p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># include board-specific functions
+.include "gd32vf103.s"
+</code></pre></div></div>
+
+<p>This should make it slightly easier to port this Forth implementation to other boards. There’s still a bit of hardcoding in some places, but I don’t want to waste my time writing a bunch of generic code that might never be used. This is fine for now.</p>
+
+<h3 id="looping-for-uart">Looping for UART</h3>
+
+<p>The above code works, but it would be nice if _every__ character I send over UART could be sent back. For this, we’ll add a main loop (temporary) right after the call to <code class="language-plaintext highlighter-rouge">gpio_init</code>:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>main:
+    call _test_uart
+    j main
+</code></pre></div></div>
+
+<h3 id="interrupt-initialization">Interrupt initialization</h3>
+
+<p>I know I said I wouldn’t implement interrupts, but I wanted to at least lay some ground work in advance.</p>
+
+<p>The first step was to define an interrupt handler as the very first item in memory (at the top of the file after the constants and macros), in this case at <code class="language-plaintext highlighter-rouge">0x8000000</code>:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>.balign CELL
+.global interrupt_handler
+.type interrupt_handler, @function
+# unimplemented interrupt handler for now
+interrupt_handler:
+    mret
+</code></pre></div></div>
+
+<p>The interrupt handler does nothing for the moment except return using <code class="language-plaintext highlighter-rouge">mret</code>, which is a <em>machine mode</em> return. From what I’ve read so far, that’s how interrupt handlers should return.</p>
+
+<p>In the future I might end up using a <em>vector table</em> instead of a generic interrupt handler, and if I do then I’ll simply replace the <code class="language-plaintext highlighter-rouge">interrupt_handler</code> with <code class="language-plaintext highlighter-rouge">vector_table</code> or something.. and define the vectors/addresses from there.</p>
+
+<p>Next is to actually perform the interrupt setup, but in my case I don’t want to use interrupts, so I’ll start by explicitly disabling them:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># Initialize the interrupt CSRs
+interrupt_init:
+    # disable global interrupts
+    csrc mstatus, 0x08  # mstatus = 0x300
+
+    # clear machine interrupt enable bits
+    csrs mie, zero      # mie = 0x304
+
+    # set interrupt handler jump address
+    la t0, interrupt_handler
+    csrw mtvec, t0      # mtvec = 0x305
+
+    ret
+</code></pre></div></div>
+
+<p>The <code class="language-plaintext highlighter-rouge">interrupt_init</code> function is called right before <code class="language-plaintext highlighter-rouge">uart_init</code> and <code class="language-plaintext highlighter-rouge">gpio_init</code>. All it does is set some CSRs (control status registers) and it sets our earlier <code class="language-plaintext highlighter-rouge">interrupt_handler</code> as the default jump address (in case we enable interrupts later).</p>
+
+<h3 id="closing-thoughts">Closing thoughts</h3>
+
+<p>There’s quite a bit more code required to fully initialize the interrupts (when you want to use them), but it’s rather complex, somewhat error-prone, and totally not necessary for the moment.</p>
+
+<p>In the next session, I’ll look into implementing proper <code class="language-plaintext highlighter-rouge">get/put</code> functions for UART, similar to what <em>derzforth</em> does, and then i’ll also complete the <code class="language-plaintext highlighter-rouge">KEY</code> and <code class="language-plaintext highlighter-rouge">EMIT</code> primitives, which should be fairly easy.</p>
+
+  <div class="pagination">
+    
+      <a class="prev" href="/devlog-17-fixing-uart">&laquo; Devlog 17 Fixing Uart</a>
+    
+    
+      <a class="next" href="/devlog-19-get-put-key-emit">Devlog 19 Get Put Key Emit &raquo;</a>
+    
+  </div>
+</article>
+      </section>
+    </div>
+  </div>
+
+   <footer>
+  <span>Copyright (c) 2021~ <a href="https://a1w.ca">Alexander Williams</a> and licensed under the permissive open source <a href="https://opensource.org/licenses/MIT">MIT</a> license.
+  </span>
+</footer>
+
+</body>
+
+</html>

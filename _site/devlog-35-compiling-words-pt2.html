@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+  <meta name="generator" content="Jekyll">
+
+  <title>Devlog 35 Compiling Words Pt2</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link href="/atom.xml" type="application/atom+xml" rel="alternate" title="ATOM Feed" />
+</head>
+
+<body>
+  <div id="wrapper">
+    <header>
+  <div>
+    <a href="/">
+    
+      <h1>FiveForths</h1>
+    </a>
+    <p style="text-align: center;">32-bit RISC-V Forth for microcontrollers</p>
+    <div class="header-links">
+      <a href="https://github.com/aw/fiveforths"><h2 class="header-link">Code</h2></a>
+<a href="/archive"><h2 class="header-link">Archive</h2></a>
+<a href="/atom.xml"><h2 class="header-link">RSS</h2></a>
+<a href="https://github.com/aw/fiveforths/archive/refs/heads/master.zip"><h2 class="header-link">Download</h2></a>
+    </div>
+  </div>
+</header>
+    <div class="container">
+      <section id="main_content">
+        <article>
+  <h2>Devlog 35 Compiling Words Pt2</h2>
+  <h1 id="january-06">January 06</h1>
+
+<ol>
+  <li><a href="#log-35">Log 35</a></li>
+  <li><a href="#compiling-words-pt2">Compiling words pt2</a></li>
+  <li><a href="#done">Done</a></li>
+  <li><a href="#closing-thoughts">Closing thoughts</a></li>
+</ol>
+
+<h3 id="log-35">Log 35</h3>
+
+<p>In this session, I actually plan on fixing compilation and getting to <strong>DONE!</strong></p>
+
+<h3 id="compiling-words-pt2">Compiling words pt2</h3>
+
+<p>I decided to step through the execution of a compiled word: <code class="language-plaintext highlighter-rouge">dup</code> using <code class="language-plaintext highlighter-rouge">GDB</code>.</p>
+
+<p>The first problem I noticed was the indirect jump to <code class="language-plaintext highlighter-rouge">docol</code> in <code class="language-plaintext highlighter-rouge">COLON</code> was not working. In fact, it doesn’t need any indirection since we’re actually jumping straight to it. Let’s fix that:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>-    la a2, .addr        # load the codeword address into Y working register
++    la a2, docol        # load the codeword address into Y working register
+</code></pre></div></div>
+
+<p>And then we can get rid of <code class="language-plaintext highlighter-rouge">.addr</code>:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>-.addr: .word docol      # indirect jump to docol from a colon definition
+</code></pre></div></div>
+
+<p>Next issue was in <code class="language-plaintext highlighter-rouge">docol</code>, we don’t expect the code field address in <code class="language-plaintext highlighter-rouge">Y</code>, that makes no sense. We expect it in <code class="language-plaintext highlighter-rouge">W</code>, like in every other <strong>Forth</strong>:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>-    addi s1, a2, CELL   # skip code field in Y by adding a CELL, store it in IP
++    addi s1, a0, CELL   # skip code field in W by adding 1 CELL, store it in IP
+</code></pre></div></div>
+
+<p>Finally, the macro <code class="language-plaintext highlighter-rouge">defcode</code> for defining a word was completely wacky. It had a mix of code from <code class="language-plaintext highlighter-rouge">sectorforth</code> and <code class="language-plaintext highlighter-rouge">jonesforth</code> and some weirdness added by me because I store a <em>hash</em> of the word instead of the <em>length+name</em>. In any case, I had to rewrite the entire macro and I ended up with this:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>.macro defcode name, hash, label, link
+    .section .rodata
+    .balign CELL        # align to CELL bytes boundary
+    .globl word_\label
+  word_\label :
+    .4byte word_\link   # 32-bit pointer to codeword of link
+    .globl hash_\label
+  hash_\label :
+    .4byte \hash        # 32-bit hash of this word
+    .4byte code_\label  # 32-bit pointer to codeword of label
+    .globl code_\label
+  code_\label :         # assembly code below
+.endm
+</code></pre></div></div>
+
+<p>This is a bit better. The <code class="language-plaintext highlighter-rouge">codefield</code> now points to <code class="language-plaintext highlighter-rouge">hash_\label+4</code>, which will move directly to the <code class="language-plaintext highlighter-rouge">code_\label</code>. I think that adds an extra cycle and would rather have the code jump to <code class="language-plaintext highlighter-rouge">code_\label</code>, but when I do that the interpreter crashes… I guess I’ll need to fix that another time.</p>
+
+<p>For the time being, let’s test out our <code class="language-plaintext highlighter-rouge">dup</code> once more in the terminal:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>: dup sp@ @ ;&lt;Enter&gt;  ok
+</code></pre></div></div>
+
+<p>And let’s inspect the 6 values in <code class="language-plaintext highlighter-rouge">GDB</code>:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>(gdb) x/6xw 0x20000000
+0x20000000:	0x080004d0	0x03886bce	0x080004c0	0x080002b4
+0x20000010:	0x0800027c	0x08000344
+</code></pre></div></div>
+
+<p>The first 2 are the link to the previous word and the hash.. unchanged since the previous <em>devlog</em>:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>(gdb) x/xw 0x080004c0
+0x80004c0 &lt;docol&gt;:	0xfe992e23
+(gdb) x/xw 0x080002b4
+0x80002b4 &lt;hash_DSPFETCH+4&gt;:	0x080002b8
+(gdb) x/xw 0x0800027c
+0x800027c &lt;hash_FETCH+4&gt;:	0x08000280
+(gdb) x/xw 0x08000344
+0x8000344 &lt;code_EXIT&gt;:	0x00092483
+</code></pre></div></div>
+
+<p><strong>Perfect!!</strong> (<em>almost</em>).</p>
+
+<p>If I gather up the courage to fix the issue I mentioned above, it would look like <code class="language-plaintext highlighter-rouge">docol, code_DSPFETCH, code_FETCH, code_EXIT</code>. Now let’s try running <code class="language-plaintext highlighter-rouge">dup</code> in the terminal:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>123 dup&lt;Enter&gt;  ok
+</code></pre></div></div>
+
+<p>This should leave <code class="language-plaintext highlighter-rouge">123</code> as the first two entries in the stack. Let’s check the stack with <code class="language-plaintext highlighter-rouge">GDB</code>:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>(gdb) i r sp
+sp             0x20004ff8 0x20004ff8
+(gdb) x/dw 0x20004ff8
+0x20004ff8: 123
+(gdb) x/dw 0x20004ff8+4
+0x20004ffc: 123
+</code></pre></div></div>
+
+<p><strong>Great!</strong></p>
+
+<p>Now we have confirmation that we can <em>execute</em> AND <em>compile</em> words!!</p>
+
+<h3 id="done">Done</h3>
+
+<p>And there we have it, my first fully functional <strong>Forth</strong> (and programming language written from scratch).</p>
+
+<h3 id="closing-thoughts">Closing thoughts</h3>
+
+<p>This is super exciting! There are still a few minor bugs to fix and features to add, but I’ll focus on bugs/optimizations first, code cleanup and comments, and maybe getting some examples and a <code class="language-plaintext highlighter-rouge">README</code> up for others to use this.</p>
+
+  <div class="pagination">
+    
+      <a class="prev" href="/devlog-34-compiling-words">&laquo; Devlog 34 Compiling Words</a>
+    
+    
+      <a class="next" href="/devlog-36-from-dtc-to-itc">Devlog 36 From Dtc To Itc &raquo;</a>
+    
+  </div>
+</article>
+      </section>
+    </div>
+  </div>
+
+   <footer>
+  <span>Copyright (c) 2021~ <a href="https://a1w.ca">Alexander Williams</a> and licensed under the permissive open source <a href="https://opensource.org/licenses/MIT">MIT</a> license.
+  </span>
+</footer>
+
+</body>
+
+</html>

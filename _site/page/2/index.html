@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+  <meta name="generator" content="Jekyll">
+
+  <title>FiveForths</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link href="/atom.xml" type="application/atom+xml" rel="alternate" title="ATOM Feed" />
+</head>
+
+<body>
+  <div id="wrapper">
+    <header>
+  <div>
+    <a href="/">
+    
+      <h1>FiveForths</h1>
+    </a>
+    <p style="text-align: center;">32-bit RISC-V Forth for microcontrollers</p>
+    <div class="header-links">
+      <a href="https://github.com/aw/fiveforths"><h2 class="header-link">Code</h2></a>
+<a href="/archive"><h2 class="header-link">Archive</h2></a>
+<a href="/atom.xml"><h2 class="header-link">RSS</h2></a>
+<a href="https://github.com/aw/fiveforths/archive/refs/heads/master.zip"><h2 class="header-link">Download</h2></a>
+    </div>
+  </div>
+</header>
+    <div class="container">
+      <section id="main_content">
+        <ul>
+    
+      <li>
+          <h2><a href="/devlog-29-what-kind-of-threads">Devlog 29 What Kind Of Threads</a></h2>
+          <p>January 02, 2023 Log 29 What kind of threads Adjusting for DTC Closing thoughts Log 29 Happy New Year! In my last post, I was clearly confused about the type of jumps (direct/indirect) my Forth was making, and in fact I kinda of still have no idea what I’m talking...</p>
+      </li>
+    
+      <li>
+          <h2><a href="/devlog-28-execute">Devlog 28 Execute</a></h2>
+          <p>December 30, 2022 Log 28 Fixing NEXT Execute Fixing newlines Closing thoughts Log 28 In this session I’ll start by fixing the NEXT macro and then I’ll implement the execute function. Fixing NEXT Of course I had a feeling NEXT was wrong, because it was copied blindly from derzforth and...</p>
+      </li>
+    
+      <li>
+          <h2><a href="/devlog-27-lookup">Devlog 27 Lookup</a></h2>
+          <p>December 30, 2022 Log 27 Lookup Execute or compile Closing thoughts Log 27 In this session I’m focused on performing hashed word lookups over the dictionary (linked list). Lookup Before performing a lookup, I forgot one important step after obtaining the token: moving TOIN. This is important because it helps...</p>
+      </li>
+    
+      <li>
+          <h2><a href="/devlog-26-checking-numbers-pt3">Devlog 26 Checking Numbers Pt3</a></h2>
+          <p>December 29, 2022 Log 26 Checking numbers pt3 Interpreter pt4 Closing thoughts Log 26 Never 2 without 3? Well in this case I just found a small bug, fixed it, and i’m back to the interpreter. Checking numbers pt3 The checking of the token size (max 10 digits) and integer...</p>
+      </li>
+    
+      <li>
+          <h2><a href="/devlog-25-checking-numbers-pt2">Devlog 25 Checking Numbers Pt2</a></h2>
+          <p>December 25, 2022 Log 25 Checking numbers pt2 Closing thoughts Log 25 After running some proper tests on my numbers function, I realized it’s completely flawed in more than a few ways. In this session I plan on fixing those issues. Checking numbers pt2 Previously, I planned on only storing...</p>
+      </li>
+    
+      <li>
+          <h2><a href="/devlog-24-checking-numbers">Devlog 24 Checking Numbers</a></h2>
+          <p>December 25, 2022 Log 24 Checking numbers Closing thoughts Log 24 What better way to spend Christmas Afternoon than to write a cool function in RISC-V Assembly? (don’t answer that.) Checking numbers One feature of Forth is its ability to check if a string token is actually a literal number,...</p>
+      </li>
+    
+      <li>
+          <h2><a href="/devlog-23-interpreter-pt3">Devlog 23 Interpreter Pt3</a></h2>
+          <p>December 24, 2022 Log 23 Terminal input buffer Indexes pt2 Closing thoughts Log 23 The plan today was to move the interpreter forward, but I discovered a design flaw in the terminal input buffer. Terminal input buffer In the last session, we were already processing the backspace character to “erase”...</p>
+      </li>
+    
+      <li>
+          <h2><a href="/devlog-22-indexes">Devlog 22 Indexes</a></h2>
+          <p>December 17, 2022 Log 22 Indexes Closing thoughts Log 22 Before I continue with the interpreter, I want to review an idea I had about indexing words. Indexes In devlog 10 I mentioned removing indexes because they’re not necessary, but I think it’s such a cool feature that I decided...</p>
+      </li>
+    
+      <li>
+          <h2><a href="/devlog-21-interpreter-pt2">Devlog 21 Interpreter Pt2</a></h2>
+          <p>December 15, 2022 Log 21 Bug fix Interpreter pt2 Closing thoughts Log 21 Resuming from the previous log entry (same day, different session). I’ll focus on character validation this time. Bug fix I quickly discovered a bug in the ok function I defined previously. When thinking about what should happen...</p>
+      </li>
+    
+      <li>
+          <h2><a href="/devlog-20-interpreter">Devlog 20 Interpreter</a></h2>
+          <p>December 15, 2022 Log 20 Fixme Error handling More initialization Interpreter Closing thoughts Log 20 I didn’t realize but it’s been exactly 1 month since I’ve reloaded this project and started hacking on it again. I’m quite happy with the progress so far, even though I only dedicate a couple...</p>
+      </li>
+    
+</ul>
+
+      </section>
+    </div>
+  </div>
+
+  
+  <div class="pagination">
+    
+    <a href="/" class="page-item">&laquo;</a>
+      
+    <a href="/" class="page-item">1</a>
+      
+    <span class="page-item">2</span>
+      
+    <a href="/page/3/" class="page-item">3</a>
+      
+    <a href="/page/4/" class="page-item">4</a>
+      
+    <a href="/page/3/" class="page-item">&raquo;</a>
+    
+  </div>
+   <footer>
+  <span>Copyright (c) 2021~ <a href="https://a1w.ca">Alexander Williams</a> and licensed under the permissive open source <a href="https://opensource.org/licenses/MIT">MIT</a> license.
+  </span>
+</footer>
+
+</body>
+
+</html>

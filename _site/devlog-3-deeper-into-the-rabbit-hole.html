@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+  <meta name="generator" content="Jekyll">
+
+  <title>Devlog 3 Deeper Into The Rabbit Hole</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link href="/atom.xml" type="application/atom+xml" rel="alternate" title="ATOM Feed" />
+</head>
+
+<body>
+  <div id="wrapper">
+    <header>
+  <div>
+    <a href="/">
+    
+      <h1>FiveForths</h1>
+    </a>
+    <p style="text-align: center;">32-bit RISC-V Forth for microcontrollers</p>
+    <div class="header-links">
+      <a href="https://github.com/aw/fiveforths"><h2 class="header-link">Code</h2></a>
+<a href="/archive"><h2 class="header-link">Archive</h2></a>
+<a href="/atom.xml"><h2 class="header-link">RSS</h2></a>
+<a href="https://github.com/aw/fiveforths/archive/refs/heads/master.zip"><h2 class="header-link">Download</h2></a>
+    </div>
+  </div>
+</header>
+    <div class="container">
+      <section id="main_content">
+        <article>
+  <h2>Devlog 3 Deeper Into The Rabbit Hole</h2>
+  <h1 id="november-17-2022">November 17, 2022</h1>
+
+<h2 id="deeper-into-the-rabbit-hole">Deeper into the rabbit hole</h2>
+
+<p>I spent a day reading some old Forth books and comparing my implementation with how things were presented. In retrospect, my early decisions weren’t as bad as I thought (except the 16-byte alignment). So I’ll account for that in today’s session.</p>
+
+<h3 id="log-3">Log 3</h3>
+
+<p>I started by making a small adjustment to the <code class="language-plaintext highlighter-rouge">Makefile</code>.</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>-dump:
+-               $(OBJDUMP) -D -S fiveforths.elf
++fiveforths.dump:
++               $(OBJDUMP) -D -S fiveforths.elf &gt; fiveforths.dump
+</code></pre></div></div>
+
+<p>I noticed the old <code class="language-plaintext highlighter-rouge">make dump</code> was quite useful but too verbose, so instead I’m dumping it to a <code class="language-plaintext highlighter-rouge">fiveforths.dump</code> which can be inspected at my own pace. The output shows the memory locations of each function, constant, etc. In the previous log I talked a lot about <em>variables</em> I defined, but those are actually hardcoded <em>constants</em>. I’ll try to use the correct terminology moving forward.</p>
+
+<h4 id="some-forth-functions">Some Forth functions</h4>
+
+<p>Last year I made a <a href="https://github.com/theandrew168/derzforth/pull/10">pull request to derzforth</a> to replace the hashing function with <em>djb2_hash</em>. That algorithm is quite small and efficient, so I thought I would use it in my <em>Forth</em> implementation as well. It is used to uniquely identify (and find) a <em>Forth</em> dictionary word. It’s also used for user-defined words, but that can be quite slow: <code class="language-plaintext highlighter-rouge">O(N)</code>, so I’m considering perhaps also creating an index (see the reserved space for hash indexes in <code class="language-plaintext highlighter-rouge">fiveforths.s</code>) which would index them by their length, thus significantly reducing the lookup time - assuming a somewhat even distribution of words across the index. The index would be a simple hash table where the key would be length+name, and the value would be the <em>djb2_hash</em> value. I haven’t implemented it, but when I do i’ll confirm if it’s a viable and efficient approach.</p>
+
+<p>Other than the hash function, I’ve also defined some functions (labels) for <code class="language-plaintext highlighter-rouge">_start</code>, <code class="language-plaintext highlighter-rouge">enter</code>, and <code class="language-plaintext highlighter-rouge">docol</code> which will be used later.</p>
+
+<p>I’m still missing some functions to handle the terminal input buffer, which will be needed to transfer files between my PC and the microcontroller (via UART).</p>
+
+<h4 id="some-forth-words---the-primitives">Some Forth words - the primitives</h4>
+
+<p>The aim is to write an extremely minimal <em>Forth</em> in Assembly before incrementally adding features (new words) as needed. The basic set of primitives should be enough to bootstrap the system, where additional words can be defined in Forth.</p>
+
+<p>Each word is defined using the <code class="language-plaintext highlighter-rouge">defcode</code> macro, and its hash was pre-computed using the <em>djb2</em> hashing algorithm. Things prefixed with <code class="language-plaintext highlighter-rouge"># OK</code> comment above the code are confirmed working and tested. Everything else marked (<code class="language-plaintext highlighter-rouge"># FIXME</code>) has yet to be implemented.</p>
+
+<p>It seems so far I’m only missing:</p>
+
+<ul>
+  <li><code class="language-plaintext highlighter-rouge">:</code></li>
+  <li><code class="language-plaintext highlighter-rouge">;</code></li>
+  <li><code class="language-plaintext highlighter-rouge">&gt;in</code></li>
+  <li><code class="language-plaintext highlighter-rouge">key</code></li>
+  <li><code class="language-plaintext highlighter-rouge">emit</code></li>
+</ul>
+
+<h4 id="adjusting-alignment">Adjusting alignment</h4>
+
+<p>Macros are a real life saver. I modified the <code class="language-plaintext highlighter-rouge">PUSH</code>, <code class="language-plaintext highlighter-rouge">POP</code>, <code class="language-plaintext highlighter-rouge">PUSHRSP</code>, and <code class="language-plaintext highlighter-rouge">POPRSP</code> macros to align the pointer to 4 bytes (32-bits).</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>-    addi sp, sp, -16    # decrement DSP by 16 bytes (128-bit aligned)
++    addi sp, sp, -4     # decrement DSP by 4 bytes (32-bit aligned)
+</code></pre></div></div>
+
+<p>This should save some space on the stacks and allow for more data to be pushed. In this case I can probably decrease the stack sizes, since a 1KiB stack would leave space for 64 elements.. but with the new alignment we’re at 256 stack elements.. which is probably way more than needed.. OK let’s do that:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>-.equ STACK_SIZE, 1024                   # 1 KiB
++.equ STACK_SIZE, 256                    # 256 Bytes
+</code></pre></div></div>
+
+<p>With this stack size we’ll be able to push up to 64 elements per stack. I really hope to never reach that many, but if I do then it’s a simple change anyways to increase the stack sizes.</p>
+
+<h4 id="closing-thoughts">Closing thoughts</h4>
+
+<p>There’s clearly a lot left to do here (I know it’s because I haven’t really done anything yet). But so far I think I’ve been refamiliarized with the code. In the next session I’ll jump to testing the code that’s written so far, using a debugger and/or simulator. I’ll also create a proper TODO list for the next steps so I can have a way to track my progress.</p>
+
+  <div class="pagination">
+    
+      <a class="prev" href="/devlog-2-dive-into-the-code">&laquo; Devlog 2 Dive Into The Code</a>
+    
+    
+      <a class="next" href="/devlog-4-validating-the-implementation">Devlog 4 Validating The Implementation &raquo;</a>
+    
+  </div>
+</article>
+      </section>
+    </div>
+  </div>
+
+   <footer>
+  <span>Copyright (c) 2021~ <a href="https://a1w.ca">Alexander Williams</a> and licensed under the permissive open source <a href="https://opensource.org/licenses/MIT">MIT</a> license.
+  </span>
+</footer>
+
+</body>
+
+</html>

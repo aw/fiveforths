@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+  <meta name="generator" content="Jekyll">
+
+  <title>Devlog 21 Interpreter Pt2</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link href="/atom.xml" type="application/atom+xml" rel="alternate" title="ATOM Feed" />
+</head>
+
+<body>
+  <div id="wrapper">
+    <header>
+  <div>
+    <a href="/">
+    
+      <h1>FiveForths</h1>
+    </a>
+    <p style="text-align: center;">32-bit RISC-V Forth for microcontrollers</p>
+    <div class="header-links">
+      <a href="https://github.com/aw/fiveforths"><h2 class="header-link">Code</h2></a>
+<a href="/archive"><h2 class="header-link">Archive</h2></a>
+<a href="/atom.xml"><h2 class="header-link">RSS</h2></a>
+<a href="https://github.com/aw/fiveforths/archive/refs/heads/master.zip"><h2 class="header-link">Download</h2></a>
+    </div>
+  </div>
+</header>
+    <div class="container">
+      <section id="main_content">
+        <article>
+  <h2>Devlog 21 Interpreter Pt2</h2>
+  <h1 id="december-15-2022">December 15, 2022</h1>
+
+<ol>
+  <li><a href="#log-21">Log 21</a></li>
+  <li><a href="#bug-fix">Bug fix</a></li>
+  <li><a href="#interpreter-pt2">Interpreter pt2</a></li>
+  <li><a href="#closing-thoughts">Closing thoughts</a></li>
+</ol>
+
+<h3 id="log-21">Log 21</h3>
+
+<p>Resuming from the previous log entry (same day, different session). I’ll focus on character validation this time.</p>
+
+<h3 id="bug-fix">Bug fix</h3>
+
+<p>I quickly discovered a bug in the <code class="language-plaintext highlighter-rouge">ok</code> function I defined previously. When thinking about what should happen after we print <code class="language-plaintext highlighter-rouge">' ok\n'</code>, I realized that before jumping to the <code class="language-plaintext highlighter-rouge">interpreter</code>, some state should be reset.</p>
+
+<p>However, jumping to the <code class="language-plaintext highlighter-rouge">reset</code> function is problematic because that would also reset the stack pointers (we only want that on <em>error</em>, not on <em>ok</em>).</p>
+
+<p>What we need is to jump to <code class="language-plaintext highlighter-rouge">tib_init</code> so we only reset the terminal input buffer, which will then jump to the <code class="language-plaintext highlighter-rouge">interpreter</code>. Here’s the new <code class="language-plaintext highlighter-rouge">ok</code> function:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># print an OK message to the uart
+ok:
+    li a0, ' '
+    call uart_put
+    li a0, 'o'
+    call uart_put
+    li a0, 'k'
+    call uart_put
+    li a0, '\n'
+    call uart_put
+
+    j tib_init          # jump to reset the terminal input buffer before jumping to the interpreter
+</code></pre></div></div>
+
+<h3 id="interpreter-pt2">Interpreter pt2</h3>
+
+<p>The first thing I want to do is define some constants for key characters we’ll be referencing:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>##
+# Interpreter constants
+##
+
+.equ CHAR_NEWLINE, '\n'         # newline character 0x0A
+.equ CHAR_SPACE, ' '            # space character 0x20
+.equ CHAR_BACKSPACE, '\b'       # backspace character 0x08
+.equ CHAR_COMMENT, '\\'         # backslash character 0x5C
+.equ CHAR_COMMENT_OPARENS, '('  # open parenthesis character 0x28
+.equ CHAR_COMMENT_CPARENS, ')'  # close parenthesis character 0x29
+</code></pre></div></div>
+
+<p>This will make it clearer when validating the input characters.</p>
+
+<p>Next, since there’s a few characters we want to check for, let’s create a new macro so we have less code to write:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># check a character
+.macro checkchar char, dest
+    call uart_get       # read a character from UART
+    call uart_put       # send the character to UART
+
+    # validate the character which is located in the W (a0) register
+    li t0, \char        # load character into temporary
+    beq a0, t0, \dest   # jump to the destination if the char matches
+.endm
+</code></pre></div></div>
+
+<p>This macro simply reads and sends a character into the working register <code class="language-plaintext highlighter-rouge">a0</code>, then it compares it with the value sent as the <code class="language-plaintext highlighter-rouge">char</code> parameter. If it matches then it jumps to the address in the <code class="language-plaintext highlighter-rouge">dest</code> parameter.</p>
+
+<p>We’ll use this in the interpreter and in our skip functions, like this:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    checkchar CHAR_COMMENT, skip_comment            # check if character is a comment
+</code></pre></div></div>
+
+<p>And in <code class="language-plaintext highlighter-rouge">skip_comment</code>, we have the following code which loops until a newline is found, then jumps back to the interpreter:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>skip_comment:
+    checkchar CHAR_NEWLINE, interpreter             # check if character is a newline
+    j skip_comment                                  # loop until it's a newline
+</code></pre></div></div>
+
+<p>We use similar code to check for <code class="language-plaintext highlighter-rouge">( -- )</code> style stack comments which begin with an opening parens and end with a closing one.</p>
+
+<p>The backspace is also somewhat similar, except in this case we’re going to simulate “erasing” a character (on screen), but we only want to <em>actually</em> erase it if the <code class="language-plaintext highlighter-rouge">TOIN</code> variable is at a higher address than <code class="language-plaintext highlighter-rouge">TIB</code> (i.e: if a character is actually in the buffer):</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>process_backspace:
+    # erase the previous character on screen by sending a space then backspace character
+    li a0, ' '
+    call uart_put
+    li a0, '\b'
+    call uart_put
+
+    # erase a character from the terminal input buffer (TIB) if there is one
+    beq a1, t2, interpreter                         # return to interpreter if TOIN == TIB
+    addi a1, a1, -1                                 # decrement TOIN by 1 to erase a character
+    sw a1, 0(t3)                                    # store new TOIN value in memory
+
+    j interpreter                                   # return to the interpreter after erasing the character
+</code></pre></div></div>
+
+<p>At this point we’re almost ready to add the character to the terminal input buffer (<code class="language-plaintext highlighter-rouge">TIB</code>), but first we need to verify if the character is a printable 8-bit character between <code class="language-plaintext highlighter-rouge">0x20</code> and <code class="language-plaintext highlighter-rouge">0x7E</code> inclusively. There’s no reason for a word to contain non-printable characters such as tabs (<code class="language-plaintext highlighter-rouge">0x09</code>) or carriage return (<code class="language-plaintext highlighter-rouge">0x0D</code>), although we will allow a newline (<code class="language-plaintext highlighter-rouge">0x0A</code>) as that’s our separation character when in <em>execute</em> mode.</p>
+
+<h3 id="closing-thoughts">Closing thoughts</h3>
+
+<p>This was a short session but I got a lot done. In the next session I’ll work on adding the characters to the <code class="language-plaintext highlighter-rouge">TIB</code>, and then read the token, hash it, dictionary lookup, etc…</p>
+
+  <div class="pagination">
+    
+      <a class="prev" href="/devlog-20-interpreter">&laquo; Devlog 20 Interpreter</a>
+    
+    
+      <a class="next" href="/devlog-22-indexes">Devlog 22 Indexes &raquo;</a>
+    
+  </div>
+</article>
+      </section>
+    </div>
+  </div>
+
+   <footer>
+  <span>Copyright (c) 2021~ <a href="https://a1w.ca">Alexander Williams</a> and licensed under the permissive open source <a href="https://opensource.org/licenses/MIT">MIT</a> license.
+  </span>
+</footer>
+
+</body>
+
+</html>

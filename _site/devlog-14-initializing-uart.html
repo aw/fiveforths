@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+  <meta name="generator" content="Jekyll">
+
+  <title>Devlog 14 Initializing Uart</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link href="/atom.xml" type="application/atom+xml" rel="alternate" title="ATOM Feed" />
+</head>
+
+<body>
+  <div id="wrapper">
+    <header>
+  <div>
+    <a href="/">
+    
+      <h1>FiveForths</h1>
+    </a>
+    <p style="text-align: center;">32-bit RISC-V Forth for microcontrollers</p>
+    <div class="header-links">
+      <a href="https://github.com/aw/fiveforths"><h2 class="header-link">Code</h2></a>
+<a href="/archive"><h2 class="header-link">Archive</h2></a>
+<a href="/atom.xml"><h2 class="header-link">RSS</h2></a>
+<a href="https://github.com/aw/fiveforths/archive/refs/heads/master.zip"><h2 class="header-link">Download</h2></a>
+    </div>
+  </div>
+</header>
+    <div class="container">
+      <section id="main_content">
+        <article>
+  <h2>Devlog 14 Initializing Uart</h2>
+  <h1 id="december-6-2022">December 6, 2022</h1>
+
+<ol>
+  <li><a href="#log-14">Log 14</a></li>
+  <li><a href="#initializing-uart">Initializing UART</a></li>
+  <li><a href="#closing-thoughts">Closing thoughts</a></li>
+</ol>
+
+<h2 id="log-14">Log 14</h2>
+
+<p>I’ve finally made it to the I/O part. I want to do this before the interpreter, just to be sure I can actually communicate with the Longan Nano MCU.</p>
+
+<h3 id="initializing-uart">Initializing UART</h3>
+
+<p>The Longan Nano MCU contains a few <code class="language-plaintext highlighter-rouge">UARTs</code> and <code class="language-plaintext highlighter-rouge">USARTs</code>. In my case I want to use <code class="language-plaintext highlighter-rouge">USART0</code> but i’ll use it in its simplest form which only requires wiring the usual <code class="language-plaintext highlighter-rouge">RX/TX</code> GPIO data pins. The default configuration will be <em>asynchronous full-duplex with 8 data bits, no parity, 1 stop bit, no flow control, at 115200 bauds</em>.</p>
+
+<p>First, we’ll need to configure the UART and setup the GPIO pins before we can actually use it. This is an initialization task where we set some bits at different memory addresses.</p>
+
+<p>Before we start setting bits like a cowboy, let’s have a quick look at what exactly is stored in memory:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>(gdb) x/1tw 0x40021000+0x18
+0x40021018:	00000000000000000000000000000000
+</code></pre></div></div>
+
+<p>I used the command <code class="language-plaintext highlighter-rouge">x</code> to examine the contents of a memory address. I specified the parameters <code class="language-plaintext highlighter-rouge">1tw</code> to display <code class="language-plaintext highlighter-rouge">1</code> <code class="language-plaintext highlighter-rouge">w</code>ord (4 bytes) in binary (<code class="language-plaintext highlighter-rouge">t</code>). That address is <code class="language-plaintext highlighter-rouge">0x40021000</code>, which is the <em>RCU base address</em> (Reset and Clock Unit) plus the offset <code class="language-plaintext highlighter-rouge">0x18</code>, which is the <em>APB2 enable register</em>. That register lets us enable things such as ADC, SPI, and of course, <code class="language-plaintext highlighter-rouge">USART0</code>.</p>
+
+<p>Notice it’s all set to 0. It might not always be, so first let’s load that memory address into a temporary:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># Initialize the UART
+uart_init:
+    li t0, 0x40021000   # load base address of the RCU
+    lw t1, 0x18(t0)     # load value from the APB2 enable register (RCU_APB2EN)
+</code></pre></div></div>
+
+<p>Then we can enable the RCU clocks for the <code class="language-plaintext highlighter-rouge">USART, GPIO</code> and add it to the existing value (and store it back in memory):</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    # enable the RCU clocks
+    li t2, (1 &lt;&lt; 14) | (1 &lt;&lt; 2) # set USART0EN (bit 14), PAEN (bit 2)
+    or t1, t1, t2       # add the enabled bits to the existing RCU_APB2EN value
+    sw t1, 0x18(t0)     # store value in RCU_APB2EN register at offset 0x18
+
+gpio_init:
+</code></pre></div></div>
+
+<p>Let’s recompile using <code class="language-plaintext highlighter-rouge">make -B</code>, reload this in GDB, and add a breakpoint on <code class="language-plaintext highlighter-rouge">gpio_init</code>:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>(gdb) load
+&lt;/snip&gt;
+
+(gdb) break gpio_init
+Breakpoint 3 at 0x80000d8: file fiveforths.s, line 207.
+
+(gdb) c
+Continuing.
+&lt;/snip&gt;
+
+(gdb) x/1tw 0x40021000+0x18
+0x40021018:	00000000000000000100000000000100
+</code></pre></div></div>
+
+<p>Perfect!</p>
+
+<h3 id="closing-thoughts">Closing thoughts</h3>
+
+<p>In the next session, I’ll focus on setting the baud rate by performing some clock division, and then maybe move to configuring the GPIO.</p>
+
+  <div class="pagination">
+    
+      <a class="prev" href="/devlog-13-debugging-on-mcu">&laquo; Devlog 13 Debugging On Mcu</a>
+    
+    
+      <a class="next" href="/devlog-15-initializing-uart-pt2">Devlog 15 Initializing Uart Pt2 &raquo;</a>
+    
+  </div>
+</article>
+      </section>
+    </div>
+  </div>
+
+   <footer>
+  <span>Copyright (c) 2021~ <a href="https://a1w.ca">Alexander Williams</a> and licensed under the permissive open source <a href="https://opensource.org/licenses/MIT">MIT</a> license.
+  </span>
+</footer>
+
+</body>
+
+</html>

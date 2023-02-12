@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+  <meta name="generator" content="Jekyll">
+
+  <title>Devlog 19 Get Put Key Emit</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link href="/atom.xml" type="application/atom+xml" rel="alternate" title="ATOM Feed" />
+</head>
+
+<body>
+  <div id="wrapper">
+    <header>
+  <div>
+    <a href="/">
+    
+      <h1>FiveForths</h1>
+    </a>
+    <p style="text-align: center;">32-bit RISC-V Forth for microcontrollers</p>
+    <div class="header-links">
+      <a href="https://github.com/aw/fiveforths"><h2 class="header-link">Code</h2></a>
+<a href="/archive"><h2 class="header-link">Archive</h2></a>
+<a href="/atom.xml"><h2 class="header-link">RSS</h2></a>
+<a href="https://github.com/aw/fiveforths/archive/refs/heads/master.zip"><h2 class="header-link">Download</h2></a>
+    </div>
+  </div>
+</header>
+    <div class="container">
+      <section id="main_content">
+        <article>
+  <h2>Devlog 19 Get Put Key Emit</h2>
+  <h1 id="december-14-2022">December 14, 2022</h1>
+
+<ol>
+  <li><a href="#log-19">Log 19</a></li>
+  <li><a href="#minor-uart-fix">Minor UART fix</a></li>
+  <li><a href="#major-macro-fix">Major macro fix</a></li>
+  <li><a href="#get-put-key-emit">Get Put Key Emit</a></li>
+  <li><a href="#closing-thoughts">Closing thoughts</a></li>
+</ol>
+
+<h1 id="log-19">Log 19</h1>
+
+<p>In this session I plan on completing the implementation of <code class="language-plaintext highlighter-rouge">get/put</code> functions for UART, as well as fixing the remaining 2 primitives <code class="language-plaintext highlighter-rouge">KEY</code> and <code class="language-plaintext highlighter-rouge">EMIT</code>.</p>
+
+<h3 id="minor-uart-fix">Minor UART fix</h3>
+
+<p>I noticed a small issue in the <code class="language-plaintext highlighter-rouge">uart_get_loop</code>, let’s see if you can spot it:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>lb a0, 0x04(t0)             # read character from data register (USART_DATA)
+</code></pre></div></div>
+
+<p>On a 32-bit RISC-V, the <code class="language-plaintext highlighter-rouge">lb</code> instruction “Loads a Byte” (8 bits) into a 32-bit register. This works fine, however <code class="language-plaintext highlighter-rouge">lb</code> is actually a <em>sign-extended</em> operation. If we try to load the character <code class="language-plaintext highlighter-rouge">0xA9</code> (i.e: <code class="language-plaintext highlighter-rouge">©</code>), the 8-bit value will be extended to 32-bits like this: <code class="language-plaintext highlighter-rouge">0xffffffa9</code>. This is not ideal. What we really want is to <em>zero-extend</em> the 8-bit value, so it looks like this: <code class="language-plaintext highlighter-rouge">0x000000a9</code>. Luckily it’s a simple fix using <code class="language-plaintext highlighter-rouge">lbu</code> (Load Byte Unsigned) instead of <code class="language-plaintext highlighter-rouge">lb</code>:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>lbu a0, 0x04(t0)            # read character (zero-extended) from data register (USART_DATA)
+</code></pre></div></div>
+
+<h3 id="major-macro-fix">Major macro fix</h3>
+
+<p>While reviewing the code, I realized I made a really big (and stupid) mistake in the <code class="language-plaintext highlighter-rouge">POP</code> and <code class="language-plaintext highlighter-rouge">PUSH</code> macros. I’m not sure what I was doing there, but they don’t even make sense. I fixed them and I’ll explain below:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># pop top of data stack to register and move DSP to TOS
+.macro POP reg
+    mv \reg, s3         # copy TOS to register
+    lw s3, 0(sp)        # load DSP value to register
+    addi sp, sp, CELL   # move the DSP up by 1 cell
+.endm
+
+# push register to top of stack and move TOS to DSP
+.macro PUSH reg
+    addi sp, sp, -CELL  # move the DSP down by 1 cell
+    sw s3, 0(sp)        # store the value in the TOS to the top of the DSP
+    mv s3, \reg         # copy register into TOS
+.endm
+</code></pre></div></div>
+
+<p>The theory behind these macros is we want to provide a register as a parameter. That register will either hold a value to be stored in the <code class="language-plaintext highlighter-rouge">TOS</code> (PUSH), or it will hold a value received from the <code class="language-plaintext highlighter-rouge">TOS</code> (POP). In both cases, we need to move the stack pointer by 1 cell because we’ll either be moving the current <code class="language-plaintext highlighter-rouge">TOS</code> to the top of the <code class="language-plaintext highlighter-rouge">DSP</code> (PUSH), or we’ll be moving the value at the top of the <code class="language-plaintext highlighter-rouge">DSP</code> into the <code class="language-plaintext highlighter-rouge">TOS</code> (POP).</p>
+
+<p>I have no idea how I ended up with the previous macros though. I guess the wrong assumption was that <code class="language-plaintext highlighter-rouge">s3</code> is always a memory address (nope).</p>
+
+<p>Anyways I think the current version is correct now, so let’s continue with the rest of the code.</p>
+
+<h3 id="get-put-key-emit">Get Put Key Emit</h3>
+
+<p>Before implementing <code class="language-plaintext highlighter-rouge">get/put</code>, I want to make them generic because they’ll pretty much work the same way on every supported board/microcontroller (I think?). First I’ll define some constants for the base address and the status/data registers:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>.equ USART0_BASE_ADDRESS, 0x40013800
+.equ UART_RX_STATUS, 0x00       # USART status register offset (USART_STAT)
+.equ UART_RX_DATA, 0x04         # data register offset (USART_DATA)
+.equ UART_TX_STATUS, 0x00       # USART status register offset (USART_STAT)
+.equ UART_TX_DATA, 0x04         # data register offset (USART_DATA)
+.equ UART_RX_BIT, (1 &lt;&lt; 5)      # read data buffer not empty bit (RBNE)
+.equ UART_TX_BIT, (1 &lt;&lt; 7)      # transmit data buffer empty bit (TBE)d
+</code></pre></div></div>
+
+<p>These apply to the <code class="language-plaintext highlighter-rouge">GD32VF103</code> microcontroller. Now we can write our generic <code class="language-plaintext highlighter-rouge">get/put</code> functions in <code class="language-plaintext highlighter-rouge">fiveforths.s</code>:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>uart_get:
+    li t0, USART0_BASE_ADDRESS  # load USART0 base address
+uart_get_loop:
+    lw t1, UART_RX_STATUS(t0)   # load value from status register
+    andi t1, t1, UART_RX_BIT    # load read data buffer not empty bit 
+    beqz t1, uart_get_loop      # loop until ready to receive
+    lbu a0, UART_RX_DATA(t0)    # read character (zero-extended) from data register
+    ret
+
+uart_put:
+    li t0, USART0_BASE_ADDRESS  # load USART0 base address
+uart_put_loop:
+    lw t1, UART_TX_STATUS(t0)   # load value from status register
+    andi t1, t1, UART_TX_BIT    # load transmit data buffer empty bit
+    beqz t1, uart_put_loop      # loop until ready to send
+    sb a0, UART_TX_DATA(t0)     # send character to data register
+    ret
+</code></pre></div></div>
+
+<p>These are mostly identical to the <em>derzforth</em> implementation (polling). I also used this opportunity to remove the <code class="language-plaintext highlighter-rouge">_test</code> function from <code class="language-plaintext highlighter-rouge">gd32vf103.s</code> and instead I simply call <code class="language-plaintext highlighter-rouge">uart_get</code> and <code class="language-plaintext highlighter-rouge">uart_put</code> in <code class="language-plaintext highlighter-rouge">fiveforths.s</code>:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># Test the UART functionality
+# 1. get a character, 2. send the character back
+main:
+    call uart_get
+    call uart_put
+    j main
+</code></pre></div></div>
+
+<p>Now that <code class="language-plaintext highlighter-rouge">get/put</code> are working, let’s finish the <code class="language-plaintext highlighter-rouge">KEY</code> and <code class="language-plaintext highlighter-rouge">EMIT</code> primitives.</p>
+
+<p>In the <code class="language-plaintext highlighter-rouge">KEY</code> primitive, we first want to read a character from the UART. It’ll be stored in the <code class="language-plaintext highlighter-rouge">W</code> (<code class="language-plaintext highlighter-rouge">a0</code>) register. Then we want to push it to the <code class="language-plaintext highlighter-rouge">TOS</code> (<code class="language-plaintext highlighter-rouge">s3</code>) top of stack register:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># key ( -- x )          Read 8-bit character from uart input
+defcode "key", 0x0388878e, KEY, EXIT
+    call uart_get       # read character from uart into W
+    PUSH a0             # store character into TOS
+    NEXT
+</code></pre></div></div>
+
+<p>In the <code class="language-plaintext highlighter-rouge">EMIT</code> primitive, we want to copy the character from <code class="language-plaintext highlighter-rouge">TOS</code> into the <code class="language-plaintext highlighter-rouge">W</code> register, and then send it over the UART:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># emit ( x -- )         Write 8-bit character to uart output
+defcode "emit", 0x04964f74, EMIT, KEY
+    POP a0              # copy TOS into W
+    call uart_put       # send character from W to uart
+    NEXT
+</code></pre></div></div>
+
+<h3 id="closing-thoughts">Closing thoughts</h3>
+
+<p>I’m happy I noticed the strange macro bug, and even happier that I’ve <em>finally</em> completed all the keyword primitives loosely based on <em>sectorforth</em>.</p>
+
+<p>Now pretty much the “only” thing remaining is the actual <strong>Forth</strong> interpreter loop and repl - compile/execute modes, skipping comments and parens, error handling… I guess I’ll start on those in the next session.</p>
+
+  <div class="pagination">
+    
+      <a class="prev" href="/devlog-18-testing-uart">&laquo; Devlog 18 Testing Uart</a>
+    
+    
+      <a class="next" href="/devlog-20-interpreter">Devlog 20 Interpreter &raquo;</a>
+    
+  </div>
+</article>
+      </section>
+    </div>
+  </div>
+
+   <footer>
+  <span>Copyright (c) 2021~ <a href="https://a1w.ca">Alexander Williams</a> and licensed under the permissive open source <a href="https://opensource.org/licenses/MIT">MIT</a> license.
+  </span>
+</footer>
+
+</body>
+
+</html>

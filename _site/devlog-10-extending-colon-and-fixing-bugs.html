@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+  <meta name="generator" content="Jekyll">
+
+  <title>Devlog 10 Extending Colon And Fixing Bugs</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link href="/atom.xml" type="application/atom+xml" rel="alternate" title="ATOM Feed" />
+</head>
+
+<body>
+  <div id="wrapper">
+    <header>
+  <div>
+    <a href="/">
+    
+      <h1>FiveForths</h1>
+    </a>
+    <p style="text-align: center;">32-bit RISC-V Forth for microcontrollers</p>
+    <div class="header-links">
+      <a href="https://github.com/aw/fiveforths"><h2 class="header-link">Code</h2></a>
+<a href="/archive"><h2 class="header-link">Archive</h2></a>
+<a href="/atom.xml"><h2 class="header-link">RSS</h2></a>
+<a href="https://github.com/aw/fiveforths/archive/refs/heads/master.zip"><h2 class="header-link">Download</h2></a>
+    </div>
+  </div>
+</header>
+    <div class="container">
+      <section id="main_content">
+        <article>
+  <h2>Devlog 10 Extending Colon And Fixing Bugs</h2>
+  <h1 id="november-30-2022">November 30, 2022</h1>
+
+<ol>
+  <li><a href="#log-10">Log 10</a></li>
+  <li><a href="#fixing-bugs">Fixing bug</a></li>
+  <li><a href="#moving-toin">Moving TOIN</a></li>
+  <li><a href="#no-indexes">No indexes</a></li>
+  <li><a href="#testing-my-code">Testing my code</a></li>
+  <li><a href="#creating-the-header">Creating the header</a></li>
+  <li><a href="#closing-thoughts">Closing thoughts</a></li>
+</ol>
+
+<h2 id="log-10">Log 10</h2>
+
+<p>I want to start by jumping into the <code class="language-plaintext highlighter-rouge">COLON</code> primitive and adding the remaining instructions for it to work correctly, but first I need to fix some issues.</p>
+
+<h3 id="fixing-bugs">Fixing bugs</h3>
+
+<p>In the last session, I made two mistakes in my code. The first was using <code class="language-plaintext highlighter-rouge">0x32</code> as the space character, which is not actually a <em>space</em> but rather a <em>2</em> (decimal 50). The hex value for <em>space</em> is <code class="language-plaintext highlighter-rouge">0x20</code>, oops:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>-    li t1, 0x32                 # initialize temporary to 'space' character
++    li t1, 0x20                 # initialize temporary to 'space' character
+</code></pre></div></div>
+
+<p>Next, I noticed that my previously defined <code class="language-plaintext highlighter-rouge">djb2_hash</code> functions starts hashing from the <em>start</em> of the buffer, so the address stored in <code class="language-plaintext highlighter-rouge">W</code> (<code class="language-plaintext highlighter-rouge">a0</code>) needs to point to the right place. That was an easy fix, I just skip adding the size of the token haha:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>-    add a0, a1, t2              # add the size of the token with the address of TOIN to W
+</code></pre></div></div>
+
+<h3 id="moving-toin">Moving TOIN</h3>
+
+<p>Now back to <code class="language-plaintext highlighter-rouge">COLON</code>, after the <code class="language-plaintext highlighter-rouge">call token</code> returns, we need to move the <code class="language-plaintext highlighter-rouge">TOIN</code> pointer to <code class="language-plaintext highlighter-rouge">W</code>, and we’ll need to handle the error case where size 0 was returned before hashing the token.</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    beqz a1, error      # error if token size was 0
+    li t0, TOIN         # load TOIN into temporary
+    sw a0, 0(t0)        # store new address into TOIN
+    call djb2_hash      # hash the token
+</code></pre></div></div>
+
+<p>The <code class="language-plaintext highlighter-rouge">error</code> function doesn’t do anything for the moment, I’ll get to that another time. The <code class="language-plaintext highlighter-rouge">djb2_hash</code> function was already tested and confirmed working in <a href="log-2022-11-17.md">devlog 3</a>.</p>
+
+<h3 id="no-indexes">No indexes</h3>
+
+<p>I thought about this some more, and decided that indexing words by hash/length would not be necessary at this stage. So I adjusted the code for that:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>-.equ INDEXES, NOOP - (CELL * 64)        # 64 CELLS between NOOP and INDEXES
+-.equ PAD, INDEXES - (CELL * 64)         # 64 CELLS between INDEXES and PAD
++.equ PAD, NOOP - (CELL * 64)            # 64 CELLS between NOOP and PAD
+</code></pre></div></div>
+
+<h3 id="testing-my-code">Testing my code</h3>
+
+<p>I’ve been testing some hand-written functions manually in the <a href="">Venus RISC-V Simulator</a>, but I’ve simplified this by creating a <code class="language-plaintext highlighter-rouge">_testing</code> function which loads some dummy data into memory and registers, and then calls the piece of code I want to test:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>_start:
+    la sp, __stacktop
+    j _testing
+    ret
+
+_testing:
+    # preparing for creating a token
+    li a0, TIB          # load TIB into W
+    li t0, 0x20202020   # load a bunch of spaces
+    sw t0, 4(a0)        # store 4 spaces in TIB
+    li t0, 0x70756420   # load word 'dup' into temporary
+    sw t0, 0(a0)        # store word in TIB address
+    addi a1, a0, 7      # increment TIB by 7 (size of token + 4 spaces)
+    li t0, TOIN         # load TOIN variable memory address into temporary
+    sw a1, 0(t0)        # store new address location from temporary in TOIN variable
+    j body_COLON
+</code></pre></div></div>
+
+<p>In the <code class="language-plaintext highlighter-rouge">_start</code> function, it will quickly jump to <code class="language-plaintext highlighter-rouge">_testing</code>, load some data into registers and store it in specific memory locations, before jumping to the <code class="language-plaintext highlighter-rouge">body_COLON</code> functions which is created in the macro call to <code class="language-plaintext highlighter-rouge">COLON</code>.</p>
+
+<p>Now I can just load this into <a href="https://github.com/mortbopet/Ripes">Ripes</a> or <code class="language-plaintext highlighter-rouge">gdb</code> and perform a quick run without copy/pasting code between my browser and text editor.</p>
+
+<p>Of course, this is temporary and will not be published or included in the actual source code.</p>
+
+<h3 id="creating-the-header">Creating the header</h3>
+
+<p>Now I need to create the word’s header, which starts at the memory address stored in <code class="language-plaintext highlighter-rouge">HERE</code>, and then add a pointer to the previous word’s memory address from <code class="language-plaintext highlighter-rouge">LATEST</code>:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    li t0, HERE         # load the HERE variable into temporary
+    lw t0, 0(t0)        # load the new start address of the current word into temporary
+    li t1, LATEST       # load the LATEST variable into temporary
+    lw t1, 0(t1)        # load the address of previous word's memory location into temporary
+</code></pre></div></div>
+
+<p>This loads the values stored in the <code class="language-plaintext highlighter-rouge">HERE</code> and <code class="language-plaintext highlighter-rouge">LATEST</code> variables into temporaries, which I’ll use for creating the header:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    sw t1, 0(t0)        # store the address of the previous word
+    sw a0, 4(t0)        # store the hash next
+</code></pre></div></div>
+
+<p>Now the address of the previous word will be stored in memory, and so will the hash. I think it will be necessary to <em>hide</em> the word before compilation using the <code class="language-plaintext highlighter-rouge">F_HIDDEN</code> flag, but I’ll save that for next session.</p>
+
+<p>Finally, to test these additions, I extended my <code class="language-plaintext highlighter-rouge">_testing</code> function with the following:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    # prepare for storing
+    li t0, HERE         # load HERE variable
+    li t1, RAM_BASE     # load RAM_BASE variable
+    sw t1, 0(t0)        # store RAM_BASE address in HERE variable
+    li t0, LATEST       # load LATEST variable
+    la t1, word_SEMI    # load address of the last word in Flash memory (;) for now
+    sw t1, 0(t0)        # store latest address in LATEST variable
+</code></pre></div></div>
+
+<p>This initializes the <code class="language-plaintext highlighter-rouge">HERE</code> and <code class="language-plaintext highlighter-rouge">LATEST</code> variables to point to the start of the RAM and the start of the last primitive word defined <code class="language-plaintext highlighter-rouge">SEMI</code>.</p>
+
+<h3 id="closing-thoughts">Closing thoughts</h3>
+
+<p>I feel this was a productive session, despite it taking much longer than expected to recover from my cold. There isn’t much left for defining <code class="language-plaintext highlighter-rouge">COLON</code>, but I’ll take a little break and get back to that next time.</p>
+
+  <div class="pagination">
+    
+      <a class="prev" href="/devlog-9-token-reading">&laquo; Devlog 9 Token Reading</a>
+    
+    
+      <a class="next" href="/devlog-11-completing-colon">Devlog 11 Completing Colon &raquo;</a>
+    
+  </div>
+</article>
+      </section>
+    </div>
+  </div>
+
+   <footer>
+  <span>Copyright (c) 2021~ <a href="https://a1w.ca">Alexander Williams</a> and licensed under the permissive open source <a href="https://opensource.org/licenses/MIT">MIT</a> license.
+  </span>
+</footer>
+
+</body>
+
+</html>

@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+  <meta name="generator" content="Jekyll">
+
+  <title>Devlog 12 Completing Semi</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link href="/atom.xml" type="application/atom+xml" rel="alternate" title="ATOM Feed" />
+</head>
+
+<body>
+  <div id="wrapper">
+    <header>
+  <div>
+    <a href="/">
+    
+      <h1>FiveForths</h1>
+    </a>
+    <p style="text-align: center;">32-bit RISC-V Forth for microcontrollers</p>
+    <div class="header-links">
+      <a href="https://github.com/aw/fiveforths"><h2 class="header-link">Code</h2></a>
+<a href="/archive"><h2 class="header-link">Archive</h2></a>
+<a href="/atom.xml"><h2 class="header-link">RSS</h2></a>
+<a href="https://github.com/aw/fiveforths/archive/refs/heads/master.zip"><h2 class="header-link">Download</h2></a>
+    </div>
+  </div>
+</header>
+    <div class="container">
+      <section id="main_content">
+        <article>
+  <h2>Devlog 12 Completing Semi</h2>
+  <h1 id="december-3-2022">December 3, 2022</h1>
+
+<ol>
+  <li><a href="#log-12">Log 12</a></li>
+  <li><a href="#fixing-colon">Fixing COLON</a></li>
+  <li><a href="#starting-semi">Starting SEMI</a></li>
+  <li><a href="#continuing-semi">Continuing SEMI</a></li>
+  <li><a href="#completing-semi">Completing SEMI</a></li>
+  <li><a href="#setup-registers">Setup registers</a></li>
+  <li><a href="#closing-thoughts">Closing thoughts</a></li>
+</ol>
+
+<h2 id="log-12">Log 12</h2>
+
+<p>Thanks to <a href="https://www.bradrodriguez.com/papers/moving1.htm">Moving Forth</a>, I finally understand how <code class="language-plaintext highlighter-rouge">COLON</code> works, and the purpose of <code class="language-plaintext highlighter-rouge">docol</code> and <code class="language-plaintext highlighter-rouge">enter</code>. Let’s fix this.</p>
+
+<h3 id="fixing-colon">Fixing COLON</h3>
+
+<p>In the last session I couldn’t figure out if I needed <code class="language-plaintext highlighter-rouge">docol</code> or <code class="language-plaintext highlighter-rouge">enter</code> as the codeword. When I put the two functions side-by-side, I realized they are almost identical! My <code class="language-plaintext highlighter-rouge">docol</code> was using the <code class="language-plaintext highlighter-rouge">PUSHRSP</code> macro, so I expanded it below:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>docol:
+    addi s2, s2, -CELL  # decrement RSP by 1 cell
+    sw s1, 0(s2)        # store value from register into RSP
+    addi s1, a0, CELL   # skip code field in W by adding a CELL, store it in IP
+    NEXT
+
+enter:
+    sw s1, 0(s2)        # store memory address from IP into RSP
+    addi s2, s2, CELL   # increment RSP by CELL size
+    addi s1, a0, CELL   # increment IP by W + CELL size
+    NEXT
+</code></pre></div></div>
+
+<p>After some analysis and brief testing, I concluded that <code class="language-plaintext highlighter-rouge">docol</code> is in fact the correct implementation. The <code class="language-plaintext highlighter-rouge">enter</code> function is an exact copy from <em>derzforth</em>, and it’s wrong because it first writes to the return stack <strong>before moving the pointer</strong>. In my Forth implementation, it points to the last entry in the stack, not the next available entry, similar to <em>sectorforth</em> and <em>jonesforth</em>, and the stack grows downward not upwards. So we first need to decrement the return stack pointer <code class="language-plaintext highlighter-rouge">RSP</code> before storing the new value. I want to store the code in the <code class="language-plaintext highlighter-rouge">Y</code> (<code class="language-plaintext highlighter-rouge">a2</code>) working register, so let’s adjust <code class="language-plaintext highlighter-rouge">COLON</code>:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>-    la t2, enter        # load the codeword address into temporary # FIXME: enter or docol?
++    la a2, docol        # load the codeword address into Y working register
+</code></pre></div></div>
+
+<p>I also want to remove the hardcoded CELL sizes in <code class="language-plaintext highlighter-rouge">COLON</code> and make sure we store the codeword from <code class="language-plaintext highlighter-rouge">Y</code>:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>     # build the header in memory
+-    sw t4, 0(t3)        # store the address of the previous word
+-    sw a0, 4(t3)        # store the hash
+-    sw t2, 8(t3)        # store the codeword address
++    sw t4, 0*CELL(t3)   # store the address of the previous word
++    sw a0, 1*CELL(t3)   # store the hash
++    sw a2, 2*CELL(t3)   # store the codeword address
+
+     # update HERE variable
+-    addi t3, t3, 12     # move the HERE pointer to the end of the word
++    addi t3, t3, 3*CELL # move the HERE pointer to the end of the word
+</code></pre></div></div>
+
+<p>Our new <code class="language-plaintext highlighter-rouge">docol</code> implementation will look like this:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>docol:
+    PUSHRSP s1          # push IP onto the return stack
+    addi s1, a2, CELL   # skip code field in Y by adding a CELL, store it in IP
+    NEXT
+</code></pre></div></div>
+
+<h3 id="starting-semi">Starting SEMI</h3>
+
+<p>With <code class="language-plaintext highlighter-rouge">:</code> out of the way, I can focus on <code class="language-plaintext highlighter-rouge">;</code> next. I’ll start by adjusting the hash of <code class="language-plaintext highlighter-rouge">SEMI</code>. It’s currently set to <code class="language-plaintext highlighter-rouge">0x0102b5e0</code> but since it’s an immediate word which must be executed right away, even if the <code class="language-plaintext highlighter-rouge">STATE</code> is set to 1 (compile mode), I’ll need to add the <code class="language-plaintext highlighter-rouge">F_IMMED</code> flag to the MSB by setting it to 1 (bitwise <em>OR</em> with <code class="language-plaintext highlighter-rouge">0x80000000</code>).</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>-defcode ";", 0x0102b5e0, SEMI, COLON
++defcode ";", 0x8102b5e0, SEMI, COLON
+</code></pre></div></div>
+
+<p>This could lead to some confusion down the road, so I’ll document the 32-bit hash value below:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>             32-bit hash
++-------+--------+------------------+
+| FLAGS | LENGTH |      HASH        |
++-------+--------+------------------+
+ 3-bits  5-bits   24-bits
+
+</code></pre></div></div>
+
+<p>That’s the actual layout of the 32-bit hash. The first 3 bits represent flags, from the MSB: <code class="language-plaintext highlighter-rouge">IMMEDIATE, HIDDEN, USER-DEFINED</code>. The next 5 bits represent the length of the token. In our case we set it to 5 bits, which means it can have a maximum 32 characters (<code class="language-plaintext highlighter-rouge">2^5</code>). The remaining 24 bits represent the actual hash of the token.</p>
+
+<p>In the <code class="language-plaintext highlighter-rouge">djb2_hash</code> function we’re performing a bitwise <em>AND</em> with the mask <code class="language-plaintext highlighter-rouge">0x00ffffff</code> which lets us clear the first 8 bits in the hash. Then we add the length (shifted left by 24 bits) using a bitwise <em>OR</em>.</p>
+
+<p>For example, the word <code class="language-plaintext highlighter-rouge">exit</code> should technically hash to <code class="language-plaintext highlighter-rouge">0x7c967e3f</code>, but we clear the first 8 bits and it becomes <code class="language-plaintext highlighter-rouge">0x00967e3f</code>, then we add the shifted length (4) and it becomes: <code class="language-plaintext highlighter-rouge">0x04967e3f</code>.</p>
+
+<h3 id="continuing-semi">Continuing SEMI</h3>
+
+<p>Moving forward with <code class="language-plaintext highlighter-rouge">SEMI</code>, at this point we’re essentially ending the compilation of the word. We’ll need to clear the <code class="language-plaintext highlighter-rouge">HIDDEN</code> flag, store the codeword for <code class="language-plaintext highlighter-rouge">exit</code> in memory, then move the <code class="language-plaintext highlighter-rouge">HERE</code> pointer.</p>
+
+<p>Clearing <code class="language-plaintext highlighter-rouge">HIDDEN</code> will first require loading the hash from memory. We use <code class="language-plaintext highlighter-rouge">LATEST</code> to find out where it’s stored:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    li t0, LATEST       # copy the memory address of LATEST into temporary
+    lw t0, 0(t0)        # load the address value into temporary
+    lw t1, 4(t0)        # load the hash into temporary
+</code></pre></div></div>
+
+<p>Then we’ll load a bitmask used to unset the hidden bit (it’s the bitwise <em>NOT</em> of the hidden flag <code class="language-plaintext highlighter-rouge">0x40000000</code>):</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    li t2, 0xbfffffff   # load hidden flag into temporary (~F_HIDDEN)
+</code></pre></div></div>
+
+<p>Then we can proceed to unhiding, or revealing the word and writing it back to memory:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    and t1, t1, t2      # unhide the word
+    sw t1, 4(t0)        # write the hash back to memory
+</code></pre></div></div>
+
+<h3 id="completing-semi">Completing SEMI</h3>
+
+<p>The final steps in the semicolon primitive are to update the <code class="language-plaintext highlighter-rouge">HERE</code> variable, move the <code class="language-plaintext highlighter-rouge">HERE</code> pointer to the end of the word definition, and return the interpreter’s <code class="language-plaintext highlighter-rouge">STATE</code> to 0, which is <em>execute</em> mode instead of <em>compile</em> mode.</p>
+
+<p>First we’ll load the address of <code class="language-plaintext highlighter-rouge">HERE</code> and update it with the address of the <code class="language-plaintext highlighter-rouge">exit</code> codeword:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    # update HERE variable
+    li t0, HERE         # copy the memory address of HERE into temporary
+    la t1, code_EXIT    # load the codeword address into temporary # FIXME: why not body_EXIT?
+    sw t1, 0(t0)        # store the codeword address into HERE
+</code></pre></div></div>
+
+<p>Notice I’ve got another question mark regarding loading the <code class="language-plaintext highlighter-rouge">exit</code> codeword. Looking at <em>derzforth</em> shows that it should jump at <code class="language-plaintext highlighter-rouge">code_EXIT</code> but I’m wondering if it shouldn’t be <code class="language-plaintext highlighter-rouge">body_EXIT</code> or <code class="language-plaintext highlighter-rouge">word_EXIT</code>. I’ll need to read more about this first.</p>
+
+<p>For now I’ll just continue and move the <code class="language-plaintext highlighter-rouge">HERE</code> pointer:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    # move HERE pointer
+    addi t1, t1, CELL   # move the HERE pointer by 1 CELL
+    sw t1, 0(t0)        # store the new address of HERE into the HERE variable
+</code></pre></div></div>
+
+<p>And finally, we update the <code class="language-plaintext highlighter-rouge">STATE</code> variable:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    # update the STATE variable
+    li t0, STATE        # load the address of the STATE variable into temporary
+    sw zero, 0(t0)        # store the current state (0 = execute) back into the STATE variable
+</code></pre></div></div>
+
+<p>That’s almost identical to what we did in <code class="language-plaintext highlighter-rouge">COLON</code> except we set it to 0 instead of 1.</p>
+
+<h3 id="setup-registers">Setup registers</h3>
+
+<p>Now I want to initialize some registers in the <code class="language-plaintext highlighter-rouge">_start</code> function so I can get to testing the <code class="language-plaintext highlighter-rouge">.elf</code> and <code class="language-plaintext highlighter-rouge">.bin</code> files.</p>
+
+<p>First we initialize the stack pointers:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    la sp, __stacktop   # initialize DSP register
+    la s1, interpreter  # initialize IP register
+    li s2, RSP_TOP      # initialize RSP register
+    mv s3, zero         # initialize TOS register
+</code></pre></div></div>
+
+<p>I set the IP register (<code class="language-plaintext highlighter-rouge">s1</code>) to point to the <code class="language-plaintext highlighter-rouge">interpreter</code>, but that might need to change.</p>
+
+<p>Then we ensure the function parameter registers are initialized to zero:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    mv a0, zero         # initialize W register
+    mv a1, zero         # initialize X register
+    mv a2, zero         # initialize Y register
+    mv a3, zero         # initialize Z register
+</code></pre></div></div>
+
+<p>Next we’ll store some values in the variables:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    li t0, STATE        # load STATE variable
+    sw zero, 0(t0)      # initialize STATE variable (0 = execute)
+</code></pre></div></div>
+
+<p>A nifty shortcut here, since <code class="language-plaintext highlighter-rouge">zero</code> is a register (<code class="language-plaintext highlighter-rouge">x0</code>), we can write it directly to a memory address without first needing to load it to a temporary like <code class="language-plaintext highlighter-rouge">li t0, 0</code>.</p>
+
+<p>We’ll need to set <code class="language-plaintext highlighter-rouge">TOIN</code> to the same address as <code class="language-plaintext highlighter-rouge">TIB</code>, basically the terminal input buffer’s current “in” location will be the start of the buffer:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    li t0, TIB          # load TIB memory address
+    li t1, TOIN         # load TOIN variable
+    sw t0, 0(t1)        # initialize TOIN variable to contain TIB start address
+</code></pre></div></div>
+
+<p>Next we’ll need to set <code class="language-plaintext highlighter-rouge">HERE</code> to be the same address as the start of the <code class="language-plaintext highlighter-rouge">RAM</code> because there’s nothing stored there yet:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    li t0, RAM_BASE     # load RAM_BASE memory address
+    li t1, HERE         # load HERE variable
+    sw t0, 0(t1)        # initialize HERE variable to contain RAM_BASE memory address
+</code></pre></div></div>
+
+<p>Finally, we’ll make sure <code class="language-plaintext highlighter-rouge">LATEST</code> points to the latest dictionary word we defined (<code class="language-plaintext highlighter-rouge">SEMI</code>):</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    la t0, word_SEMI    # load address of the last word in Flash memory (;) for now
+    li t1, LATEST       # load LATEST variable
+    sw t0, 0(t1)        # initialize LATEST variable to contain word_SEMI memory address
+</code></pre></div></div>
+
+<p>That completes my Forth initialization routine, but I’m  not even sure if it’s correct. I am however certain it will change in the future because some of those values will also need to be initialized when there’s an error.</p>
+
+<h3 id="closing-thoughts">Closing thoughts</h3>
+
+<p>I believe the next step after initialization is for the code to jump to the interpreter, but that has yet to be written! (and I’m not even sure!) In the next session, I’ll focus on testing what I’ve written so far, directly on the Longan Nano Lite. Then I’ll jump to the 2 missing primitives: <code class="language-plaintext highlighter-rouge">key</code> and <code class="language-plaintext highlighter-rouge">emit</code> - for IO.</p>
+
+  <div class="pagination">
+    
+      <a class="prev" href="/devlog-11-completing-colon">&laquo; Devlog 11 Completing Colon</a>
+    
+    
+      <a class="next" href="/devlog-13-debugging-on-mcu">Devlog 13 Debugging On Mcu &raquo;</a>
+    
+  </div>
+</article>
+      </section>
+    </div>
+  </div>
+
+   <footer>
+  <span>Copyright (c) 2021~ <a href="https://a1w.ca">Alexander Williams</a> and licensed under the permissive open source <a href="https://opensource.org/licenses/MIT">MIT</a> license.
+  </span>
+</footer>
+
+</body>
+
+</html>

@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+  <meta name="generator" content="Jekyll">
+
+  <title>Devlog 7 Reverting Code</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link href="/atom.xml" type="application/atom+xml" rel="alternate" title="ATOM Feed" />
+</head>
+
+<body>
+  <div id="wrapper">
+    <header>
+  <div>
+    <a href="/">
+    
+      <h1>FiveForths</h1>
+    </a>
+    <p style="text-align: center;">32-bit RISC-V Forth for microcontrollers</p>
+    <div class="header-links">
+      <a href="https://github.com/aw/fiveforths"><h2 class="header-link">Code</h2></a>
+<a href="/archive"><h2 class="header-link">Archive</h2></a>
+<a href="/atom.xml"><h2 class="header-link">RSS</h2></a>
+<a href="https://github.com/aw/fiveforths/archive/refs/heads/master.zip"><h2 class="header-link">Download</h2></a>
+    </div>
+  </div>
+</header>
+    <div class="container">
+      <section id="main_content">
+        <article>
+  <h2>Devlog 7 Reverting Code</h2>
+  <h1 id="november-22-2022">November 22, 2022</h1>
+
+<ol>
+  <li><a href="#reverting-code">Reverting code</a></li>
+  <li><a href="#log-7">Log 7</a></li>
+  <li><a href="#removing-primitives">Removing primitives</a></li>
+  <li><a href="#reviewing-primitives-pt2">Reviewing primitives pt2</a></li>
+  <li><a href="#closing-thoughts">Closing Thoughts</a></li>
+</ol>
+
+<h2 id="reverting-code">Reverting code</h2>
+
+<p>It seems I may have made a few mistakes in my previous session. I’ll need to revert some code.</p>
+
+<h3 id="log-7">Log 7</h3>
+
+<p>I knew I had read about the <code class="language-plaintext highlighter-rouge">TOS</code> register somewhere else.. it was in <a href="http://www.bradrodriguez.com/papers/moving1.htm">Brad Rodriguez: Moving Forth pt.1</a>, where he mentions the major downside of a <code class="language-plaintext highlighter-rouge">TOS</code> and <code class="language-plaintext highlighter-rouge">SOS</code>:</p>
+
+<blockquote>
+  <p>a push becomes a push followed by a move</p>
+</blockquote>
+
+<p>I’ll revert to only using a <code class="language-plaintext highlighter-rouge">TOS</code> (as per my original design) and once more review my primitives.</p>
+
+<h4 id="removing-primitives">Removing primitives</h4>
+
+<p>The review will start from the top. I’ll remove my new <code class="language-plaintext highlighter-rouge">DUALPOP</code> macro. I’ll also remove <code class="language-plaintext highlighter-rouge">POP</code> and <code class="language-plaintext highlighter-rouge">PUSH</code> because I don’t think they’ll be needed anymore. In the future if I notice some repetitive code then I’ll convert them to macros, but for now I think we can live without them. I’ll also remove the <code class="language-plaintext highlighter-rouge">RCALL</code> macro because I honestly have no idea what it’s for.</p>
+
+<h4 id="reviewing-primitives-pt2">Reviewing primitives pt2</h4>
+
+<p>We’ll start with <code class="language-plaintext highlighter-rouge">STORE</code>, since <code class="language-plaintext highlighter-rouge">FETCH</code> only uses the <code class="language-plaintext highlighter-rouge">TOS</code> and is confirmed working as expected:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># ! ( x addr -- )       Store x at addr
+defcode "!", 0x0102b5c6, STORE, FETCH
+    lw t0, 0(sp)        # load the DSP value (x) into temporary
+    sw t0, 0(s3)        # store temporary into address stored in TOS (addr)
+    lw s3, CELL(sp)     # load second value in DSP to TOS
+    addi sp, sp, 2*CELL # move DSP up by 2 cells
+    NEXT
+</code></pre></div></div>
+
+<p>It was changed to load the value of <code class="language-plaintext highlighter-rouge">x</code> at the top of the <code class="language-plaintext highlighter-rouge">DSP</code>, into a temporary register <code class="language-plaintext highlighter-rouge">t0</code>. It then stores that value into the memory address <code class="language-plaintext highlighter-rouge">addr</code> pointed by the value stored in the <code class="language-plaintext highlighter-rouge">TOS</code> (<code class="language-plaintext highlighter-rouge">s3</code>). Finally, it moves the next value in the <code class="language-plaintext highlighter-rouge">DSP</code> over to the <code class="language-plaintext highlighter-rouge">TOS</code> and adjusts the stack size to reflect the two values that were removed.</p>
+
+<p>Next, for the <code class="language-plaintext highlighter-rouge">DSPFETCH</code> primitive, we want to place the current address of the stack pointer <code class="language-plaintext highlighter-rouge">DSP</code> into the <code class="language-plaintext highlighter-rouge">TOS</code>. Then we’ll copy the <code class="language-plaintext highlighter-rouge">DSP</code> into the <code class="language-plaintext highlighter-rouge">TOS</code>, and move the stack pointer down by 1 cell:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># sp@ ( -- addr )       Get current data stack pointer
+defcode "sp@", 0x0388aac8, DSPFETCH, STORE
+    sw s3, -CELL(sp)    # store the value in the TOS to the top of the DSP
+    mv s3, sp           # copy DSP to TOS
+    addi sp, sp, -CELL  # move the DSP down by 1 cell to make room for the TOS
+    NEXT
+</code></pre></div></div>
+
+<p>I’m assuming we want to store the <em>current</em> stack pointer address in the <code class="language-plaintext highlighter-rouge">TOS</code> <em>before</em> moving the pointer to a new address.. so technically if we run this twice in a row we’ll get consecutive addresses (off by 4).</p>
+
+<p>We do something similar for the <code class="language-plaintext highlighter-rouge">RSPFETCH</code> primitive except we’re copying <code class="language-plaintext highlighter-rouge">RSP</code> into <code class="language-plaintext highlighter-rouge">TOS</code>:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># rp@ ( -- addr )       Get current return stack pointer
+defcode "rp@", 0x0388a687, RSPFETCH, DSPFETCH
+    sw s3, -CELL(sp)    # store the value in the TOS to the top of the DSP
+    mv s3, s2           # copy RSP to TOS
+    addi sp, sp, -CELL  # move the DSP down by 1 cell to make room for the TOS
+    NEXT
+</code></pre></div></div>
+
+<p>I’m already noticing a pattern between <code class="language-plaintext highlighter-rouge">sp@</code> and <code class="language-plaintext highlighter-rouge">rp@</code>, so let’s see if I can reorganize those into a macro which moves the <code class="language-plaintext highlighter-rouge">TOS</code> value into the <code class="language-plaintext highlighter-rouge">DSP</code> and the moves the stack pointer down by 1 cell. I can probably call it, oh.. let’s see… how about <code class="language-plaintext highlighter-rouge">PUSH</code>:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># push register to top of stack
+.macro PUSH reg
+    sw s3, -CELL(sp)    # store the value in the TOS to the top of the DSP
+    mv s3, \reg         # copy reg to TOS
+    addi sp, sp, -CELL  # move the DSP down by 1 cell to make room for the TOS
+.endm
+</code></pre></div></div>
+
+<p>This simplifies our <code class="language-plaintext highlighter-rouge">DSPFETCH</code> and <code class="language-plaintext highlighter-rouge">RSPFETCH</code> primitives:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>defcode "sp@", 0x0388aac8, DSPFETCH, STORE
+    PUSH sp
+    NEXT
+
+defcode "rp@", 0x0388a687, RSPFETCH, DSPFETCH
+    PUSH s2
+    NEXT
+</code></pre></div></div>
+
+<p>Haha. I had a feeling I would end up needing <code class="language-plaintext highlighter-rouge">PUSH</code> once more. Of course, the above code is almost identical to the <em>sectorforth</em> implementation, so I’ll assuming i’m on the right track.</p>
+
+<h4 id="closing-thoughts">Closing Thoughts</h4>
+
+<p>There’s still a few more primitives to review and adjust, but I’ll take a break for now and let these changes sink in before continuing in the next sesssion.</p>
+
+  <div class="pagination">
+    
+      <a class="prev" href="/devlog-6-simpler-code">&laquo; Devlog 6 Simpler Code</a>
+    
+    
+      <a class="next" href="/devlog-8-reviewing-primitives-again">Devlog 8 Reviewing Primitives Again &raquo;</a>
+    
+  </div>
+</article>
+      </section>
+    </div>
+  </div>
+
+   <footer>
+  <span>Copyright (c) 2021~ <a href="https://a1w.ca">Alexander Williams</a> and licensed under the permissive open source <a href="https://opensource.org/licenses/MIT">MIT</a> license.
+  </span>
+</footer>
+
+</body>
+
+</html>

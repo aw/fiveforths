@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+  <meta name="generator" content="Jekyll">
+
+  <title>Devlog 32 Fixing Bugs</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link href="/atom.xml" type="application/atom+xml" rel="alternate" title="ATOM Feed" />
+</head>
+
+<body>
+  <div id="wrapper">
+    <header>
+  <div>
+    <a href="/">
+    
+      <h1>FiveForths</h1>
+    </a>
+    <p style="text-align: center;">32-bit RISC-V Forth for microcontrollers</p>
+    <div class="header-links">
+      <a href="https://github.com/aw/fiveforths"><h2 class="header-link">Code</h2></a>
+<a href="/archive"><h2 class="header-link">Archive</h2></a>
+<a href="/atom.xml"><h2 class="header-link">RSS</h2></a>
+<a href="https://github.com/aw/fiveforths/archive/refs/heads/master.zip"><h2 class="header-link">Download</h2></a>
+    </div>
+  </div>
+</header>
+    <div class="container">
+      <section id="main_content">
+        <article>
+  <h2>Devlog 32 Fixing Bugs</h2>
+  <h1 id="january-04-2023">January 04, 2023</h1>
+
+<ol>
+  <li><a href="#log-32">Log 32</a></li>
+  <li><a href="#fixing-dsp">Fixing DSP</a></li>
+  <li><a href="#fixing-macros">Fixing macros</a></li>
+  <li><a href="#fixing-primitives">Fixing primitives</a></li>
+  <li><a href="#closing-thoughts">Closing thoughts</a></li>
+</ol>
+
+<h3 id="log-32">Log 32</h3>
+
+<p>In this session I’ll focus on fixing some bugs I discovered with the data stack.</p>
+
+<h3 id="fixing-dsp">Fixing DSP</h3>
+
+<p>In <em>devlog 2</em>, I introduced the idea of a <code class="language-plaintext highlighter-rouge">TOS</code> (top of stack) register. It’s not new to <strong>Forth</strong>, but it was new to me. The idea was to use a saved register (<code class="language-plaintext highlighter-rouge">s3</code>) to keep the top element of the stack. It would slightly simplify certain operations but also complicate others.</p>
+
+<p>One of the biggest issues I’ve run into is regarding the initialization routine, particularly this line:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    mv s3, zero                 # initialize TOS register
+</code></pre></div></div>
+
+<p>This sets the <code class="language-plaintext highlighter-rouge">TOS</code> register to a known value: <code class="language-plaintext highlighter-rouge">0</code>. So far so good, however let’s take a look at our <code class="language-plaintext highlighter-rouge">PUSH</code> macro:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># push register to top of stack and move TOS to DSP
+.macro PUSH reg
+    addi sp, sp, -CELL  # move the DSP down by 1 cell
+    sw s3, 0(sp)        # store the value in the TOS to the top of the DSP
+    mv s3, \reg         # copy register into TOS
+.endm
+</code></pre></div></div>
+
+<p>It first decrements the <code class="language-plaintext highlighter-rouge">DSP</code> (<code class="language-plaintext highlighter-rouge">sp</code>) pointer by 1 CELL before storing the <code class="language-plaintext highlighter-rouge">TOS</code> value into it, and then copying whatever register was pushed.</p>
+
+<p>Here’s an example:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>PUSH a0
+</code></pre></div></div>
+
+<p>Seems simple, but it’s bad. The very first <code class="language-plaintext highlighter-rouge">PUSH</code> will actually end up copying the value <code class="language-plaintext highlighter-rouge">0</code> to the top of the <code class="language-plaintext highlighter-rouge">DSP</code> (pointed at by <code class="language-plaintext highlighter-rouge">sp</code>, which will be address <code class="language-plaintext highlighter-rouge">0x20004FFC</code>), and it will store the value from <code class="language-plaintext highlighter-rouge">a0</code> into <code class="language-plaintext highlighter-rouge">TOS</code> (<code class="language-plaintext highlighter-rouge">s3</code>). So now, our stack actually has 2 elements! Oops!! In fact, the very first <code class="language-plaintext highlighter-rouge">PUSH</code> should only write to <code class="language-plaintext highlighter-rouge">TOS</code> without moving the stack pointer… thus ignoring the <code class="language-plaintext highlighter-rouge">0</code> in the <code class="language-plaintext highlighter-rouge">TOS</code>, but I think coding for that condition is a bit ridiculous because the <code class="language-plaintext highlighter-rouge">TOS</code> could potentially have a value we want, ex: if <code class="language-plaintext highlighter-rouge">0=</code> was the first command, then <code class="language-plaintext highlighter-rouge">TOS</code> would contain <code class="language-plaintext highlighter-rouge">1</code>…</p>
+
+<p>So, at this point I just want to get rid of the <code class="language-plaintext highlighter-rouge">TOS</code> (<code class="language-plaintext highlighter-rouge">s3</code>) register and only use the <code class="language-plaintext highlighter-rouge">DSP</code>. The entire time I’ve always had to think extra hard about the <code class="language-plaintext highlighter-rouge">TOS</code> register and now that I’ve encountered this bug, I just want it to disappear.</p>
+
+<h3 id="fixing-macros">Fixing macros</h3>
+
+<p>To start, I’ll edit the macros in <code class="language-plaintext highlighter-rouge">src/02-macros.s</code> to only use the <code class="language-plaintext highlighter-rouge">DSP</code>. Here are the changes to the <code class="language-plaintext highlighter-rouge">POP</code> macro:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code> .macro POP reg
+-    mv \reg, s3         # copy TOS to register
+-    lw s3, 0(sp)        # load DSP value to register
++    lw \reg, 0(sp)      # load DSP value to register
+     addi sp, sp, CELL   # move the DSP up by 1 cell
+ .endm
+</code></pre></div></div>
+
+<p>and the <code class="language-plaintext highlighter-rouge">PUSH</code> macro:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code> .macro PUSH reg
+     addi sp, sp, -CELL  # move the DSP down by 1 cell
+-    sw s3, 0(sp)        # store the value in the TOS to the top of the DSP
+-    mv s3, \reg         # copy register into TOS
++    sw \reg, 0(sp)      # store the value in the register to the top of the DSP
+ .endm
+</code></pre></div></div>
+
+<p>The above macros were simplified thanks to the removal of the <code class="language-plaintext highlighter-rouge">TOS</code>. Similarly, we’ll also adjust the <code class="language-plaintext highlighter-rouge">PUSHVAR</code> macro (which I think I coded incorrectly anyways):</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code> .macro PUSHVAR var
+     addi sp, sp, -CELL  # move the DSP down by 1 cell
+-    sw s3, 0(sp)        # store the value in the TOS to the top of the DSP
+     li t0, \var         # load variable into temporary
+-    lw s3, 0(t0)        # load variable address value into TOS
++    sw t0, 0(sp)        # store the variable value to the top of the DSP
+ .endm
+</code></pre></div></div>
+
+<p>Here we’re not loading the value pointed at by the variable anymore. Instead we’re just storing the memory address of the variable to the top of the stack. I guess we can then use <code class="language-plaintext highlighter-rouge">@</code> to fetch the actual contents of those memory addresses.</p>
+
+<h3 id="fixing-primitives">Fixing primitives</h3>
+
+<p>That conveniently leads us to our next changes in <code class="language-plaintext highlighter-rouge">src/08-forth-primitives.s</code>, where we’ll start by modifying <code class="language-plaintext highlighter-rouge">FETCH</code>:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code> defcode "@", 0x0102b5e5, FETCH, NULL
+-    lw s3, 0(s3)        # load address value from TOS (addr) into TOS (x)
++    lw t0, 0(sp)        # load the top of stack into temporary
++    lw t0, 0(t0)        # load the value from the temporary (addr)
++    sw t0, 0(sp)        # store the value back the top of stack (x)
+     NEXT
+</code></pre></div></div>
+
+<p>Yikes! We’ve got way more instructions for this, because now we need to load the value in the stack pointer, get the address it points to, then store that back into the stack pointer. Slightly more complicated than simply loading from <code class="language-plaintext highlighter-rouge">TOS</code> into <code class="language-plaintext highlighter-rouge">TOS</code>.</p>
+
+<p>We can test that it works in the terminal with:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>latest @&lt;Enter&gt;
+</code></pre></div></div>
+
+<p>Now if everything worked well, we should have the memory address of <code class="language-plaintext highlighter-rouge">word_SEMI</code> stored as the first entry in the data stack. Let’s check with <code class="language-plaintext highlighter-rouge">GDB</code>:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>(gdb) i r sp
+sp             0x20004ffc	0x20004ffc
+(gdb) x/xw 0x20004ffc
+0x20004ffc:	0x080004d8
+(gdb) x/xw 0x080004d8
+0x80004d8 &lt;word_SEMI&gt;:	0x080004cc
+</code></pre></div></div>
+
+<p><strong>Great!</strong></p>
+
+<p>Next we’ll modify <code class="language-plaintext highlighter-rouge">STORE</code> by loading the top two stack entries into temporaries, and then storing one into the other:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code> defcode "!", 0x0102b5c6, STORE, FETCH
+     lw t0, 0(sp)        # load the DSP value (x) into temporary
+-    sw t0, 0(s3)        # store temporary into address stored in TOS (addr)
+-    lw s3, CELL(sp)     # load second value in DSP to TOS
++    lw t1, CELL(sp)     # load the DSP value (addr) into temporary
++    sw t0, 0(t1)        # store x into addr
+     addi sp, sp, 2*CELL # move DSP up by 2 cells
+     NEXT
+</code></pre></div></div>
+
+<p>The instruction count remains the same, but we’re not messing with <code class="language-plaintext highlighter-rouge">TOS</code> anymore. Let’s test it out by trying to store the value of <code class="language-plaintext highlighter-rouge">latest</code> to the writeable memory address <code class="language-plaintext highlighter-rouge">HERE</code>, which is set to <code class="language-plaintext highlighter-rouge">0x20000000</code> (the start of the dictionary) on initialization. In the terminal we’ll type:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>here @ latest @ !&lt;Enter&gt;
+</code></pre></div></div>
+
+<p>Still following along? We just put <code class="language-plaintext highlighter-rouge">HERE</code> in the stack, and then put <code class="language-plaintext highlighter-rouge">LATEST</code> in the stack. Then we called <code class="language-plaintext highlighter-rouge">STORE</code> which technically should <em>store</em> <code class="language-plaintext highlighter-rouge">0x080004d8</code> into <code class="language-plaintext highlighter-rouge">0x20000000</code>. Let’s check with <code class="language-plaintext highlighter-rouge">GDB</code>:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>(gdb) x/xw 0x20000000
+0x20000000:	0x080004d8
+</code></pre></div></div>
+
+<p><strong>Sweet!</strong></p>
+
+<p>Actually, at this point I’m starting to feel amazing. So far everything is working as I hoped. Let’s continue with <code class="language-plaintext highlighter-rouge">ZEQU</code>, which was a buggy non-sensical little 1-liner:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code> defcode "0=", 0x025970b2, ZEQU, RSPFETCH
+-    seqz s3, s3         # store 1 in TOS if TOS is equal to 0, otherwise store 0
++    lw t0, 0(sp)        # load the DSP value (x) into temporary
++    snez t0, t0         # store 0 in temporary if it's equal to 0, otherwise store 1
++    addi t0, t0, -1     # store -1 in temporary if it's 0, otherwise store 0
++    sw t0, 0(sp)        # store value back into the top of the stack
+     NEXT
+</code></pre></div></div>
+
+<p>First I realized the <code class="language-plaintext highlighter-rouge">ZEQU</code> should actually store <code class="language-plaintext highlighter-rouge">-1</code> not <code class="language-plaintext highlighter-rouge">1</code>. In this case I’m using the exact same approach as <em>sectorforth</em> but with RISC-V instructions to “set if not equal” and then to decrement the value by 1. Let’s test it by storing the <code class="language-plaintext highlighter-rouge">STATE</code> (should be <code class="language-plaintext highlighter-rouge">0</code>) in the <code class="language-plaintext highlighter-rouge">DSP</code>, and then calling <code class="language-plaintext highlighter-rouge">0=</code> in the terminal with:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>state @ 0=&lt;Enter&gt;
+</code></pre></div></div>
+
+<p>In <code class="language-plaintext highlighter-rouge">GDB</code> we should find <code class="language-plaintext highlighter-rouge">-1</code> as the top stack value:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>(gdb) i r sp
+sp             0x20004ffc	0x20004ffc
+(gdb) x/dw 0x20004ffc
+0x20004ffc:	-1
+</code></pre></div></div>
+
+<p>Now let’s call <code class="language-plaintext highlighter-rouge">0=</code> again in the terminal:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>0=&lt;Enter&gt;
+</code></pre></div></div>
+
+<p>And let’s inspect it again in <code class="language-plaintext highlighter-rouge">GDB</code>:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>(gdb) i r sp
+sp             0x20004ffc	0x20004ffc
+(gdb) x/dw 0x20004ffc
+0x20004ffc:	0
+</code></pre></div></div>
+
+<p><strong>Awesome!</strong></p>
+
+<p>The last primitives to fix are <code class="language-plaintext highlighter-rouge">ADD</code> and <code class="language-plaintext highlighter-rouge">NAND</code> which should be fairly similar as they have the same stack effects. Let’s start with <code class="language-plaintext highlighter-rouge">ADD</code>:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code> defcode "+", 0x0102b5d0, ADD, ZEQU
+     POP t0              # pop value into temporary
+-    add s3, s3, t0      # add values and store in TOS
++    lw t1, 0(sp)        # load DSP value (x2) into temporary
++    add t0, t0, t1      # add the two values
++    sw t0, 0(sp)        # store the value into the top of the stack
+</code></pre></div></div>
+
+<p>Again, without the <code class="language-plaintext highlighter-rouge">TOS</code> it’s a bit more complex. Here we’re still popping the top value from the stack into <code class="language-plaintext highlighter-rouge">t0</code>, but we’re also loading the next top value into <code class="language-plaintext highlighter-rouge">t1</code> (note: the <code class="language-plaintext highlighter-rouge">POP t0</code> moves the stack pointer, so we’re still loading from offset <code class="language-plaintext highlighter-rouge">0</code>). Afterwards we’re adding the two registers and then storing the result back into the top of the stack.</p>
+
+<p>Now let’s look at the bitwise <code class="language-plaintext highlighter-rouge">NAND</code>:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code> defcode "nand", 0x049b0c66, NAND, ADD
+     POP t0              # pop value into temporary
+-    and s3, s3, t0      # store bitwise AND of temporary and TOS into TOS
+-    not s3, s3          # store bitwise NOT of TOS into TOS
++    lw t1, 0(sp)        # load DSP value (x2) into temporary
++    and t0, t0, t1      # perform bitwise AND of the two values
++    not t0, t0          # perform bitwise NOT of the value
++    sw t0, 0(sp)        # store the value into the top of the stack
+     NEXT
+</code></pre></div></div>
+
+<p>It’s almost identical to <code class="language-plaintext highlighter-rouge">ADD</code> except we’re performing bitwise <em>AND</em> and <em>NOT</em> instead of <em>ADD</em>.</p>
+
+<p>That completes our changes to the <em>forth primitives</em>. Let’s test <code class="language-plaintext highlighter-rouge">ADD</code> and <code class="language-plaintext highlighter-rouge">NAND</code>. We’ll start by trying to add the value of <code class="language-plaintext highlighter-rouge">LATEST</code> to the value of <code class="language-plaintext highlighter-rouge">LATEST</code>. In the terminal we’ll type:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>latest @ latest @ +&lt;Enter&gt;
+</code></pre></div></div>
+
+<p>Now in <code class="language-plaintext highlighter-rouge">GDB</code>, let’s get the address of <code class="language-plaintext highlighter-rouge">LATEST</code> (aka <code class="language-plaintext highlighter-rouge">word_SEMI</code>), right now it gives us <code class="language-plaintext highlighter-rouge">0x80004e8</code> (because we added some new instructions previously). Multiplying it by 2 should give us <code class="language-plaintext highlighter-rouge">0x100009D0</code> stored at the top of the stack.</p>
+
+<p>Let’s check:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>(gdb) x/xw word_SEMI
+0x80004e8 &lt;word_SEMI&gt;:	0x080004dc
+(gdb) i r sp
+sp             0x20004ffc	0x20004ffc
+(gdb) x/xw 0x20004ffc
+0x20004ffc:	0x100009d0
+</code></pre></div></div>
+
+<p><strong>Perfect!</strong></p>
+
+<p>Next we’ll see if <code class="language-plaintext highlighter-rouge">NAND</code> works as expected by storing <code class="language-plaintext highlighter-rouge">STATE</code> in the top of the stack. In the terminal we’ll type:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>state @ state @ nand&lt;Enter&gt;
+</code></pre></div></div>
+
+<p>And in <code class="language-plaintext highlighter-rouge">GBD</code>, since we know that <code class="language-plaintext highlighter-rouge">STATE</code> is set to <code class="language-plaintext highlighter-rouge">0</code> when we’re in <em>execute</em> mode, performing a <code class="language-plaintext highlighter-rouge">NAND</code> of <code class="language-plaintext highlighter-rouge">0</code> and <code class="language-plaintext highlighter-rouge">0</code> should give us <code class="language-plaintext highlighter-rouge">-1</code> (remember this is bitwise, which flips all the 0 bits to 1, giving us <code class="language-plaintext highlighter-rouge">0xFFFFFFFF</code> or <code class="language-plaintext highlighter-rouge">-1</code>):</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>(gdb) i r sp
+sp             0x20004ffc	0x20004ffc
+(gdb) x/dw 0x20004ffc
+0x20004ffc:	-1
+</code></pre></div></div>
+
+<p><strong>Yesss!!!</strong></p>
+
+<p>That’s all for our <em>forth primitives</em>. The one final change is to remove the initialization of <code class="language-plaintext highlighter-rouge">s3</code> in <code class="language-plaintext highlighter-rouge">src/06-initialization.s</code>:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>-    mv s3, zero                 # initialize TOS register
+</code></pre></div></div>
+
+<h3 id="closing-thoughts">Closing thoughts</h3>
+
+<p>This was a rather long session of writing and testing and editing code, but we did it! Not only did I fix some bugs in some of the primitives, but I also greatly simplified the data stack by getting rid of the <code class="language-plaintext highlighter-rouge">TOS</code>.</p>
+
+<p>In the next session, I’ll get the compiler working so I can finally add words to the user dictionary starting at address <code class="language-plaintext highlighter-rouge">0x20000000</code> (on the longan nano).</p>
+
+  <div class="pagination">
+    
+      <a class="prev" href="/devlog-31-interpreting-words">&laquo; Devlog 31 Interpreting Words</a>
+    
+    
+      <a class="next" href="/devlog-33-storing-numbers">Devlog 33 Storing Numbers &raquo;</a>
+    
+  </div>
+</article>
+      </section>
+    </div>
+  </div>
+
+   <footer>
+  <span>Copyright (c) 2021~ <a href="https://a1w.ca">Alexander Williams</a> and licensed under the permissive open source <a href="https://opensource.org/licenses/MIT">MIT</a> license.
+  </span>
+</footer>
+
+</body>
+
+</html>

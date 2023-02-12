@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+  <meta name="generator" content="Jekyll">
+
+  <title>Devlog 36 From Dtc To Itc</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link href="/atom.xml" type="application/atom+xml" rel="alternate" title="ATOM Feed" />
+</head>
+
+<body>
+  <div id="wrapper">
+    <header>
+  <div>
+    <a href="/">
+    
+      <h1>FiveForths</h1>
+    </a>
+    <p style="text-align: center;">32-bit RISC-V Forth for microcontrollers</p>
+    <div class="header-links">
+      <a href="https://github.com/aw/fiveforths"><h2 class="header-link">Code</h2></a>
+<a href="/archive"><h2 class="header-link">Archive</h2></a>
+<a href="/atom.xml"><h2 class="header-link">RSS</h2></a>
+<a href="https://github.com/aw/fiveforths/archive/refs/heads/master.zip"><h2 class="header-link">Download</h2></a>
+    </div>
+  </div>
+</header>
+    <div class="container">
+      <section id="main_content">
+        <article>
+  <h2>Devlog 36 From Dtc To Itc</h2>
+  <h1 id="january-07">January 07</h1>
+
+<ol>
+  <li><a href="#log-36">Log 36</a></li>
+  <li><a href="#from-dtc-to-itc">From DTC to ITC</a></li>
+  <li><a href="#cleaning-up-lookup">Cleaning up lookup</a></li>
+  <li><a href="#closing-thoughts">Closing thoughts</a></li>
+</ol>
+
+<h3 id="log-36">Log 36</h3>
+
+<p>In this session I fix a few bugs which made me switch threading mode.</p>
+
+<h3 id="from-dtc-to-itc">From DTC to ITC</h3>
+
+<p>In <em>devlog 29</em> I mentioned my goal of implementing this <strong>Forth</strong> as a <em>Direct Threaded Code</em> (DTC) Forth, but I ended up banging my head on the wall trying to actually make it work <em>correctly</em>.</p>
+
+<p>It works but it doesn’t work. The main issue was with executing compiled words which included other compiled words. The address loaded in the <code class="language-plaintext highlighter-rouge">W</code> register was the address of the word, not the address pointed to by the word (<code class="language-plaintext highlighter-rouge">docol</code>). There is likely a way to fix it, but I got annoyed with the idea that <em>compiled</em> words need to be executed differently from <em>primitive</em> words.</p>
+
+<p>For that reason, I decided to model my Forth on the classic <em>Indirect Threaded Code</em> (ITC) approach found in many implementations such as <em>jonesforth</em> and <em>derzforth</em>.</p>
+
+<p>To make these changes, we first need to modify the <code class="language-plaintext highlighter-rouge">NEXT</code> macro to add another level of indirection:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>-    jr a0               # jump to the address in W
++    lw t0, 0(a0)        # load address from W into temporary
++    jr t0               # jump to the address in temporary
+</code></pre></div></div>
+
+<p>Next, I added another level of indirection for jumping to docol:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>-    la a2, docol        # load the codeword address into Y working register
++    la a2, .addr        # load the codeword address into Y working register
+</code></pre></div></div>
+
+<p>And the <code class="language-plaintext highlighter-rouge">.addr</code> is defined here as a jump to <code class="language-plaintext highlighter-rouge">docol</code>:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>+.addr:
++    j docol             # indirect jump to interpreter after executing a word
+</code></pre></div></div>
+
+<p>Finally, when executing a word, we want a double-indirection to the outer interpreter similar to <code class="language-plaintext highlighter-rouge">NEXT</code>:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>-.loop: .word process_token  # indirect jump to interpreter after executing a word
++.loop: .word .dloop         # double indirect jump to interpreter
++.dloop: .word process_token # indirect jump to interpreter after executing a word
+</code></pre></div></div>
+
+<p>One more change I made was to the <code class="language-plaintext highlighter-rouge">defcode</code> macro. I wanted to have specific global labels for each part (link, hash, code), and a global label for the <em>body</em> which is where the Assembly code is located. This makes everything much more clear when debugging and it’s easier to trace. Here’s the full macro after modifications:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>.macro defcode name, hash, label, link
+    .section .rodata
+    .balign CELL        # align to CELL bytes boundary
+    .globl word_\label
+  word_\label :
+    .4byte word_\link   # 32-bit pointer to codeword of link
+    .globl hash_\label
+  hash_\label :
+    .4byte \hash        # 32-bit hash of this word
+    .globl code_\label
+  code_\label :
+    .4byte body_\label  # 32-bit pointer to codeword of label
+    .globl body_\label
+  body_\label :         # assembly code below
+.endm
+</code></pre></div></div>
+
+<p>Now we can test some Forth code in the terminal. First we’ll define <code class="language-plaintext highlighter-rouge">dup</code>, then we’ll define <code class="language-plaintext highlighter-rouge">invert</code>, then we’ll call <code class="language-plaintext highlighter-rouge">invert</code> on the stack value <code class="language-plaintext highlighter-rouge">-66</code>, and emit that to the terminal. It should print an <code class="language-plaintext highlighter-rouge">A</code> which is <code class="language-plaintext highlighter-rouge">0x00000041</code> or decimal <code class="language-plaintext highlighter-rouge">65</code> (<code class="language-plaintext highlighter-rouge">nand</code> of <code class="language-plaintext highlighter-rouge">-66</code> and <code class="language-plaintext highlighter-rouge">-66</code>):</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>: dup sp@ @ ;&lt;Enter&gt;   ok
+: invert dup nand ;&lt;Enter&gt;   ok
+-66 invert&lt;Enter&gt;   ok
+emit&lt;Enter&gt; A   ok
+</code></pre></div></div>
+
+<p><strong>Yessss!!!</strong></p>
+
+<h3 id="cleaning-up-lookup">Cleaning up lookup</h3>
+
+<p>The <code class="language-plaintext highlighter-rouge">lookup</code> function was not cleaning up after itself when an error was found. This was not an issue when <em>executing</em> words, only when <em>compiling</em> because it would essentially leave a word half-compiled in memory.</p>
+
+<p>I think the first change is to make a copy of <code class="language-plaintext highlighter-rouge">LATEST</code> once we enter the function. This is the value we want to restore if there’s an error, but we only want to do it once:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code> lookup:
+-    beqz a1, error              # error if the address is 0 (end of the dictionary)
++    mv t2, a1                   # copy the address of LATEST
+</code></pre></div></div>
+
+<p>Next, we want to move our guard to the loop part, which will happen on every word that’s looked up:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>+lookup_loop:
++    beqz a1, lookup_error       # error if the address is 0 (end of the dictionary)
+</code></pre></div></div>
+
+<p>In <code class="language-plaintext highlighter-rouge">lookup_next</code>, we want to jump to the loop instead, so let’s change that:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>-    j lookup
++    j lookup_loop
+</code></pre></div></div>
+
+<p>Then we can begin to define our custom lookup error handler:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>lookup_error:
+    # check the STATE
+    li t0, STATE                # load the address of the STATE variable into temporary
+    lw t0, 0(t0)                # load the current state into a temporary
+    beqz t0, error              # if in execute mode (STATE = 0), jump to error handler to reset
+</code></pre></div></div>
+
+<p>First want want to check the <code class="language-plaintext highlighter-rouge">STATE</code> of the interpreter. If we’re in <em>execute</em> mode then it’s safe to jump to the <code class="language-plaintext highlighter-rouge">error</code> function which will handle resetting things (without touching <code class="language-plaintext highlighter-rouge">HERE</code> or <code class="language-plaintext highlighter-rouge">LATEST</code>).</p>
+
+<p>Otherwise, if we’re in <em>compile</em> mode, we want to store our previously saved <code class="language-plaintext highlighter-rouge">LATEST</code> value into <code class="language-plaintext highlighter-rouge">HERE</code>. This rolls back the memory address of <code class="language-plaintext highlighter-rouge">HERE</code> as if we didn’t even define a word:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    # update HERE since we're in compile mode
+    li t0, HERE                 # load HERE variable into temporary
+    sw t2, 0(t0)                # store the address of LATEST back into HERE
+</code></pre></div></div>
+
+<p>Next, we want to update <code class="language-plaintext highlighter-rouge">LATEST</code> so it points back to the previous word that was defined before the current one. That address is actually still there in memory, at the location pointed to by <code class="language-plaintext highlighter-rouge">HERE</code> (the <code class="language-plaintext highlighter-rouge">t2</code> register from earlier):</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    # update LATEST since we're in compile mode
+    li t0, LATEST               # load LATEST variable into temporary
+    lw t1, 0(t2)                # load LATEST variable value into temporary
+    sw t1, 0(t0)                # store LATEST word into LATEST variable
+</code></pre></div></div>
+
+<p>Once that’s done, we can jump to the <code class="language-plaintext highlighter-rouge">error</code> function to handle resetting other things:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    j error                     # jump to error handler
+</code></pre></div></div>
+
+<h3 id="closing-thoughts">Closing thoughts</h3>
+
+<p>Alright, now <em>everything</em> actually works!! (I hope)</p>
+
+<p>Now there’s only one small bug remaining, which is related to hitting backspace in the terminal. It’s probably a small issue, but I’ll get to that eventually. In the next session, I’ll publish the <code class="language-plaintext highlighter-rouge">README</code>, and work on the documentation, examples, optimizations, and code cleanup.</p>
+
+  <div class="pagination">
+    
+      <a class="prev" href="/devlog-35-compiling-words-pt2">&laquo; Devlog 35 Compiling Words Pt2</a>
+    
+    
+      <a class="next" href="/devlog-37-a-release-or-two">Devlog 37 A Release Or Two &raquo;</a>
+    
+  </div>
+</article>
+      </section>
+    </div>
+  </div>
+
+   <footer>
+  <span>Copyright (c) 2021~ <a href="https://a1w.ca">Alexander Williams</a> and licensed under the permissive open source <a href="https://opensource.org/licenses/MIT">MIT</a> license.
+  </span>
+</footer>
+
+</body>
+
+</html>

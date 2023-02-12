@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+  <meta name="generator" content="Jekyll">
+
+  <title>FiveForths</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link href="/atom.xml" type="application/atom+xml" rel="alternate" title="ATOM Feed" />
+</head>
+
+<body>
+  <div id="wrapper">
+    <header>
+  <div>
+    <a href="/">
+    
+      <h1>FiveForths</h1>
+    </a>
+    <p style="text-align: center;">32-bit RISC-V Forth for microcontrollers</p>
+    <div class="header-links">
+      <a href="https://github.com/aw/fiveforths"><h2 class="header-link">Code</h2></a>
+<a href="/archive"><h2 class="header-link">Archive</h2></a>
+<a href="/atom.xml"><h2 class="header-link">RSS</h2></a>
+<a href="https://github.com/aw/fiveforths/archive/refs/heads/master.zip"><h2 class="header-link">Download</h2></a>
+    </div>
+  </div>
+</header>
+    <div class="container">
+      <section id="main_content">
+        <ul>
+    
+      <li>
+          <h2><a href="/devlog-19-get-put-key-emit">Devlog 19 Get Put Key Emit</a></h2>
+          <p>December 14, 2022 Log 19 Minor UART fix Major macro fix Get Put Key Emit Closing thoughts Log 19 In this session I plan on completing the implementation of get/put functions for UART, as well as fixing the remaining 2 primitives KEY and EMIT. Minor UART fix I noticed a...</p>
+      </li>
+    
+      <li>
+          <h2><a href="/devlog-18-testing-uart">Devlog 18 Testing Uart</a></h2>
+          <p>December 13, 2022 Log 18 Testing UART Looping for UART Interrupt initialization Closing thoughts Log 18 After a few days deliberating on the best implementation for interrupts, I decided not to implement them just yet. I did implement a short test routine and I’m happy to report my UART code...</p>
+      </li>
+    
+      <li>
+          <h2><a href="/devlog-17-fixing-uart">Devlog 17 Fixing Uart</a></h2>
+          <p>December 8, 2022 Log 17 Fixing UART Closing thoughts Log 17 I made a mistake when configuring the RX/TX GPIO pins. This session’s focus is on fixing that. Fixing UART When reviewing the datasheet for the Longan Nano’s MCU, I realized I made one mistake. The USART pins RX/TX are...</p>
+      </li>
+    
+      <li>
+          <h2><a href="/devlog-16-initializing-uart-pt3">Devlog 16 Initializing Uart Pt3</a></h2>
+          <p>December 8, 2022 Log 16 Initializing UART pt3 Configuring GPIO Closing thoughts Log 16 I’m aiming to complete the UART and GPIO initialization in this session. Initializing UART pt3 Last time, we enabled the clocks and set the baud rate. Now we’ll look at setting up the mode bits. We...</p>
+      </li>
+    
+      <li>
+          <h2><a href="/devlog-15-initializing-uart-pt2">Devlog 15 Initializing Uart Pt2</a></h2>
+          <p>December 7, 2022 Log 15 Initializing UART pt2 Closing thoughts Log 15 The goal today is to continue with the UART initialization and validate the register values in GDB. Initializing UART pt2 After enabling the clocks, the next step is to set the baud rate for USART0. From the GD32VF103...</p>
+      </li>
+    
+      <li>
+          <h2><a href="/devlog-14-initializing-uart">Devlog 14 Initializing Uart</a></h2>
+          <p>December 6, 2022 Log 14 Initializing UART Closing thoughts Log 14 I’ve finally made it to the I/O part. I want to do this before the interpreter, just to be sure I can actually communicate with the Longan Nano MCU. Initializing UART The Longan Nano MCU contains a few UARTs...</p>
+      </li>
+    
+      <li>
+          <h2><a href="/devlog-13-debugging-on-mcu">Devlog 13 Debugging On Mcu</a></h2>
+          <p>December 4, 2022 Log 13 Debugging on MCU Closing thoughts Log 13 In this session I’ll focus on debugging directly on the MCU with gdb and openocd. Debugging on MCU I started this session by wiring my Longan Nano to my FTDI FT232RL USB device. The device itself has all...</p>
+      </li>
+    
+      <li>
+          <h2><a href="/devlog-12-completing-semi">Devlog 12 Completing Semi</a></h2>
+          <p>December 3, 2022 Log 12 Fixing COLON Starting SEMI Continuing SEMI Completing SEMI Setup registers Closing thoughts Log 12 Thanks to Moving Forth, I finally understand how COLON works, and the purpose of docol and enter. Let’s fix this. Fixing COLON In the last session I couldn’t figure out if...</p>
+      </li>
+    
+      <li>
+          <h2><a href="/devlog-11-completing-colon">Devlog 11 Completing Colon</a></h2>
+          <p>December 1, 2022 Log 11 Completing COLON Closing thoughts Log 11 I think this session will be short since I only plan to “complete” the COLON primitive. Completing COLON OK so I wrote quite a few lines of code to finish this definition, without logging what I was doing. So...</p>
+      </li>
+    
+      <li>
+          <h2><a href="/devlog-10-extending-colon-and-fixing-bugs">Devlog 10 Extending Colon And Fixing Bugs</a></h2>
+          <p>November 30, 2022 Log 10 Fixing bug Moving TOIN No indexes Testing my code Creating the header Closing thoughts Log 10 I want to start by jumping into the COLON primitive and adding the remaining instructions for it to work correctly, but first I need to fix some issues. Fixing...</p>
+      </li>
+    
+</ul>
+
+      </section>
+    </div>
+  </div>
+
+  
+  <div class="pagination">
+    
+    <a href="/page/2/" class="page-item">&laquo;</a>
+      
+    <a href="/" class="page-item">1</a>
+      
+    <a href="/page/2/" class="page-item">2</a>
+      
+    <span class="page-item">3</span>
+      
+    <a href="/page/4/" class="page-item">4</a>
+      
+    <a href="/page/4/" class="page-item">&raquo;</a>
+    
+  </div>
+   <footer>
+  <span>Copyright (c) 2021~ <a href="https://a1w.ca">Alexander Williams</a> and licensed under the permissive open source <a href="https://opensource.org/licenses/MIT">MIT</a> license.
+  </span>
+</footer>
+
+</body>
+
+</html>

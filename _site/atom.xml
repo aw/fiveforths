@@ -1,0 +1,1469 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>FiveForths</title>
+    <description>32-bit RISC-V Forth for microcontrollers</description>
+    <link>https://fiveforths.a1w.ca</link>
+    <atom:link href="https://fiveforths.a1w.ca/feed.xml" rel="self" type="application/rss+xml" />
+    <author>
+      <name></name>
+      <email></email>
+      <uri></uri>
+    </author>
+    
+      <item>
+        <title>Devlog 39 Release V04 Toggling Leds</title>
+        <description>&lt;h1 id=&quot;january-23&quot;&gt;January 23&lt;/h1&gt;
+
+&lt;ol&gt;
+  &lt;li&gt;&lt;a href=&quot;#log-39&quot;&gt;Log 39&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;#release-v04&quot;&gt;Release v04&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;#toggling-leds&quot;&gt;Toggling LEDs&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;#closing-thoughts&quot;&gt;Closing thoughts&lt;/a&gt;&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;h3 id=&quot;log-39&quot;&gt;Log 39&lt;/h3&gt;
+
+&lt;p&gt;In this session I’ll discuss the &lt;a href=&quot;https://github.com/aw/fiveforths/releases/tag/v0.4&quot;&gt;latest release&lt;/a&gt; which includes handling HEX numbers and manipulating hardware.&lt;/p&gt;
+
+&lt;h3 id=&quot;release-v04&quot;&gt;Release v04&lt;/h3&gt;
+
+&lt;p&gt;One of the major obstacles to working with hardware was the lack of support for hexadecimal numbers. That is, inputting something like &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0xCAFE4241&lt;/code&gt; would be treated as a string (and word not found). Back in the day, older &lt;em&gt;Forths&lt;/em&gt; would set the base value using a word such as &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;HEX&lt;/code&gt; or &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;DECIMAL&lt;/code&gt; or even &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;OCTAL&lt;/code&gt;. I think this is completely unnecessary and much more elegant to simply prefix a number with the number base &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0x&lt;/code&gt;. It also prevents problems where one might forget to set the base back to what it previously was. Decimal is the default base for numbers, and octal can be ignored (or implemented in Forth). Binary input might be added in the future, with the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0b&lt;/code&gt; prefix, but I don’t think it’s very important for now.&lt;/p&gt;
+
+&lt;p&gt;More importantly, when browsing through the CPU datasheet, we’ll typically (always) find memory addresses given in hexadecimal values, so let’s support that.&lt;/p&gt;
+
+&lt;p&gt;First, in our internal &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;number&lt;/code&gt; function after checking if the number is negative (prefixed with &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;-&lt;/code&gt;), instead of jumping to &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;number_digit&lt;/code&gt; we’ll jump to &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;number_check&lt;/code&gt; and see if it’s hexadecimal (prefixed with &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0x&lt;/code&gt;):&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;number_check:
+    li t3, 0x00007830           # load the '0x' string into temporary
+    lhu t2, 0(a0)               # load the first 2 characters into temporary
+    bne t2, t3, number_digit    # jump to number digit loop if the first 2 characters are not '0x'
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;We’re using the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;lhu&lt;/code&gt; instruction to load a half-word (16 bits / 2 bytes), and then comparing those 2 bytes with the value &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0x00007830&lt;/code&gt; which just so happens to be &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0x&lt;/code&gt; when input through the UART. If there’s no match, then we’ll jump to the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;number_digit&lt;/code&gt; routine as usual. If there is a match, then we’ll set the number base to &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;16&lt;/code&gt; in a temporary register, and increment the buffer address by 2 to skip the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0x&lt;/code&gt; characters. We jump to &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;number_error&lt;/code&gt; if the string is only 2 characters and equal to &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0x&lt;/code&gt;. This doesn’t actually return an error / reset things. All it does is adjust the return value in the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;X&lt;/code&gt; working register so when the function returns, we’ll know it’s not a number (maybe &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0x&lt;/code&gt; is a word? why not?).&lt;/p&gt;
+
+&lt;p&gt;In &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;number_digit&lt;/code&gt;, we’re doing things a bit differently to check if the digits are valid. We want to ensure they’re between &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0-9&lt;/code&gt; if the base is 10, and between &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0-F&lt;/code&gt; if the base is 16. Unfortunately in ASCII the letters &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;A-F&lt;/code&gt; don’t immediately follow &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;9&lt;/code&gt; or precede &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0&lt;/code&gt;, so a bit of funky math is required. The exact approach is explained very well in the Forth book &lt;em&gt;“Threaded Interpretive Languages (1981)”&lt;/em&gt;, but luckily for us it was also implemented in &lt;a href=&quot;https://github.com/nornagon/jonesforth/blob/master/jonesforth.S#L1453-L1481&quot;&gt;jonesforth&lt;/a&gt;. Even better, an existing &lt;em&gt;QEMU jonesforth RISC-V port&lt;/em&gt; &lt;a href=&quot;https://github.com/jjyr/jonesforth_riscv/blob/master/jonesforth.S#L1552-L1579&quot;&gt;also implemented this approach&lt;/a&gt; in Assembly, so I inspired myself from those two and made some modifications to work in &lt;a href=&quot;https://github.com/aw/fiveforths/blob/master/src/05-internal-functions.s#L77-L107&quot;&gt;FiveForths&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p&gt;The final change was to change the return type for the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;X&lt;/code&gt; register. Previously a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;1&lt;/code&gt; meant &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;OK&lt;/code&gt; and a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0&lt;/code&gt; meant &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ERROR&lt;/code&gt;. I changed it so &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0&lt;/code&gt; means &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;OK&lt;/code&gt; and anything greater than that means &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ERROR&lt;/code&gt;. The reason is the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;X&lt;/code&gt; register (&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;a1&lt;/code&gt;) starts off holding the size of the token, and while processing each digit we decrement that size until it reaches &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0&lt;/code&gt;. Although if we detect a non-digit (ex: &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;G&lt;/code&gt; or &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;$&lt;/code&gt;) then it’s definitely not a number, so we end the routine there, leaving &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;X&lt;/code&gt; at its last value, which will ultimately be greater than &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0&lt;/code&gt; (thus, an error). If the value of &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;X&lt;/code&gt; is &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0&lt;/code&gt; at the end of the routine, we know for sure we have a valid number, which we store in the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;W&lt;/code&gt; working register (&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;a0&lt;/code&gt;).&lt;/p&gt;
+
+&lt;p&gt;Of course in the interpreter when &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;call number&lt;/code&gt; returns, we need to check if &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;X&lt;/code&gt; was &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;zero&lt;/code&gt; instead:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;-    bnez a1, push_number    # push the token to the stack or memory if it's a number
++    beqz a1, push_number    # push the token to the stack or memory if it's a number
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;That’s a small but crucial change.&lt;/p&gt;
+
+&lt;h3 id=&quot;toggling-leds&quot;&gt;Toggling LEDs&lt;/h3&gt;
+
+&lt;p&gt;Now that we can input hexadecimal numbers, it becomes much easier to mess with the hardware. Our &lt;em&gt;Hello World&lt;/em&gt; for &lt;em&gt;FiveForths&lt;/em&gt; involves toggling the blue (pin A1) and green (pin A2) LEDs.&lt;/p&gt;
+
+&lt;p&gt;Before we start, it’s important to define some words which will be used later:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;: invert -1 nand ;
+: over sp@ 4 + @ ;
+: swap over over sp@ 12 + ! sp@ 4 + ! ;
+: and nand invert ;
+: or invert swap invert nand ;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Now here’s the Forth code to turn on the green and blue LEDs on the &lt;em&gt;Longan Nano&lt;/em&gt;:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;: green_led_on 0x40010800 @ 0xFFFFFF0F and 0x00000030 or 0x40010800 ! ;
+: blue_led_on 0x40010800 @ 0xFFFFF0FF and 0x00000300 or 0x40010800 ! ;
+green_led_on
+blue_led_on
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Here’s what the code actually does:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;read the current GPIOA port config (with &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;@&lt;/code&gt;)&lt;/li&gt;
+  &lt;li&gt;apply a mask to clear the 4 bits for pin the (with &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;and&lt;/code&gt;)&lt;/li&gt;
+  &lt;li&gt;apply the new pin config (with &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;or&lt;/code&gt;)&lt;/li&gt;
+  &lt;li&gt;store the new GPIOA port config (with &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;!&lt;/code&gt;)&lt;/li&gt;
+  &lt;li&gt;execute the new word to turn on the LED&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;And here’s an explanation of the hexadecimal values:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0x40010800&lt;/code&gt;: GPIOA base address with offset &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0x00&lt;/code&gt; for &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;CTL0&lt;/code&gt; pins 0-7 (would be &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;CTL1&lt;/code&gt; with offset &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0x04&lt;/code&gt; for pins 8-15).&lt;/li&gt;
+  &lt;li&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0xFFFFF0FF&lt;/code&gt;: mask to clear GPIO pin 2 (would be the same for GPIO pin 10, while GPIO pin 1 would be &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0xFFFFFF0F&lt;/code&gt; and GPIO pin 8 would be &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0xFFFFFFF0&lt;/code&gt;).&lt;/li&gt;
+  &lt;li&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0x00000030&lt;/code&gt;: GPIO pin 1 setting &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0b0011&lt;/code&gt; which is &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;push-pull output, max speed 50MHz&lt;/code&gt;.&lt;/li&gt;
+  &lt;li&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0x00000040&lt;/code&gt;: GPIO pin 1 setting &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0b0100&lt;/code&gt; which is &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;floating input&lt;/code&gt;.&lt;/li&gt;
+  &lt;li&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0x00000300&lt;/code&gt;: GPIO pin 2 setting &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0b0011&lt;/code&gt; which is &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;push-pull output, max speed 50MHz&lt;/code&gt;.&lt;/li&gt;
+  &lt;li&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0x00000400&lt;/code&gt;: GPIO pin 2 setting &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0b0100&lt;/code&gt; which is &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;floating input&lt;/code&gt;.&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;Now to turn off the LEDs is equally simple:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;: green_led_off 0x40010800 @ 0xFFFFFF0F and 0x00000040 or 0x40010800 ! ;
+: blue_led_off 0x40010800 @ 0xFFFFF0FF and 0x00000400 or 0x40010800 ! ;
+green_led_off
+blue_led_off
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Notice here in the definitions all we changed is the value of the GPIO pin settings. We’re switching the GPIO pins back to &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;floating input&lt;/code&gt; mode, which essentially is like turning off the LEDs (technically the LEDs are active-low, so turning them “on” requires us to bring the pins low).&lt;/p&gt;
+
+&lt;p&gt;I think this shows some of the stronger points of writing in Forth as opposed to Assembly, and it’s nice being able to do it interactively and see the results right away.&lt;/p&gt;
+
+&lt;h3 id=&quot;closing-thoughts&quot;&gt;Closing thoughts&lt;/h3&gt;
+
+&lt;p&gt;I’ll be focusing on other projects moving forward, so I don’t expect to add any new features or enhancements anytime soon, or at least until those projects are completed. Thanks for following along!&lt;/p&gt;
+</description>
+        <pubDate>Mon, 23 Jan 2023 00:00:00 +0900</pubDate>
+        <link>https://fiveforths.a1w.ca//devlog-39-release-v04-toggling-leds</link>
+        <link href="https://fiveforths.a1w.ca/devlog-39-release-v04-toggling-leds"/>
+        <guid isPermaLink="true">https://fiveforths.a1w.ca/devlog-39-release-v04-toggling-leds</guid>
+      </item>
+    
+      <item>
+        <title>Devlog 38 Release V03</title>
+        <description>&lt;h1 id=&quot;january-19&quot;&gt;January 19&lt;/h1&gt;
+
+&lt;ol&gt;
+  &lt;li&gt;&lt;a href=&quot;#log-38&quot;&gt;Log 38&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;#release-v03&quot;&gt;Release v03&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;#bug-fixes&quot;&gt;Bug fixes&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;#enhancements&quot;&gt;Enhancements&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;#closing-thoughts&quot;&gt;Closing thoughts&lt;/a&gt;&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;h3 id=&quot;log-38&quot;&gt;Log 38&lt;/h3&gt;
+
+&lt;p&gt;In this session I’ll discuss the bugs I fixed, some enhancements, and documentation for &lt;em&gt;FiveForths&lt;/em&gt;.&lt;/p&gt;
+
+&lt;h3 id=&quot;release-v03&quot;&gt;Release v03&lt;/h3&gt;
+
+&lt;p&gt;In &lt;a href=&quot;https://github.com/aw/fiveforths/releases/tag/v0.3&quot;&gt;release v0.3&lt;/a&gt; I made quite a few changes, most importantly is regarding documentation, so let’s start there.&lt;/p&gt;
+
+&lt;p&gt;A new sub-directory was created, called &lt;a href=&quot;https://github.com/aw/fiveforths/tree/master/docs&quot;&gt;docs/&lt;/a&gt; which contains, you guessed it, documentation! It’s using a system called &lt;a href=&quot;https://diataxis.fr/&quot;&gt;Diátaxis&lt;/a&gt; which was previously the &lt;a href=&quot;https://documentation.divio.com/&quot;&gt;Divio&lt;/a&gt; docs, which I believe were created by &lt;a href=&quot;https://diataxis.fr/contact/&quot;&gt;Daniele Procida&lt;/a&gt;. I’ve used it in &lt;a href=&quot;https://github.com/aw/picolisp-posixmq/tree/master/docs&quot;&gt;previous&lt;/a&gt; &lt;a href=&quot;https://github.com/aw/hw-micro3d/tree/master/docs&quot;&gt;projects&lt;/a&gt; over the last few years and have grown quite fond of it.&lt;/p&gt;
+
+&lt;p&gt;The major goal of those documents is to allow people to learn about &lt;em&gt;FiveForths&lt;/em&gt;, to write their own &lt;em&gt;Forth&lt;/em&gt; code and maybe even contribute some &lt;em&gt;Assembly&lt;/em&gt; code. I’ll continue adding to it as needed, but please feel free to contribute any changes which may help (even typos in the docs).&lt;/p&gt;
+
+&lt;p&gt;The next important changes were some bug fixes. I opened 4 issues on GitHub and &lt;a href=&quot;https://github.com/aw/fiveforths/pull/15/files&quot;&gt;1 pull request&lt;/a&gt; prior to rebase-merging into the &lt;em&gt;master&lt;/em&gt; branch.&lt;/p&gt;
+
+&lt;h3 id=&quot;bug-fixes&quot;&gt;Bug fixes&lt;/h3&gt;
+
+&lt;p&gt;The &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;STORE&lt;/code&gt; bug in &lt;a href=&quot;https://github.com/aw/fiveforths/issues/14&quot;&gt;issue 14&lt;/a&gt; was a real simple one. The &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;!&lt;/code&gt; (&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;STORE&lt;/code&gt;) primitive should store &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;x&lt;/code&gt; in &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;addr&lt;/code&gt;. I’m not sure how I overlooked it, but I somehow managed to reverse the order and found myself storing &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;addr&lt;/code&gt; in &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;x&lt;/code&gt;. I swear I tested it, so I reviewed &lt;a href=&quot;https://fiveforths.a1w.ca/devlog-32-fixing-bugs#fixing-primitives&quot;&gt;devlog 32&lt;/a&gt; and I realize my mistake. The code:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;here @ latest @ !&amp;lt;Enter&amp;gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;It had the arguments backwards! That command would normally try to store &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;HERE&lt;/code&gt; into &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;LATEST&lt;/code&gt; (in a working &lt;em&gt;Forth&lt;/em&gt;), but since it was reversed in my code (and in the example), it actually &lt;strong&gt;worked&lt;/strong&gt;. It ended up storing &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;LATEST&lt;/code&gt; in &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;HERE&lt;/code&gt; and worked perfectly. Oops!&lt;/p&gt;
+
+&lt;p&gt;Here’s the fixed code in the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;STORE&lt;/code&gt; primitive:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;-    lw t0, 0(sp)        # load the DSP value (x) into temporary
+-    lw t1, CELL(sp)     # load the DSP value (addr) into temporary
++    lw t1, 0(sp)        # load the DSP value (addr) into temporary
++    lw t0, CELL(sp)     # load the DSP value (x) into temporary
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;The &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;TOIN&lt;/code&gt; bug in &lt;a href=&quot;https://github.com/aw/fiveforths/issues/13&quot;&gt;issue 13&lt;/a&gt; was a bit more complex. In fact it didn’t affect the way &lt;em&gt;FiveForths&lt;/em&gt; worked, as it only affected the result from using &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;&amp;gt;in&lt;/code&gt; in &lt;em&gt;Forth&lt;/em&gt; code. With &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;&amp;gt;in&lt;/code&gt; it should actually store the buffer position in the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;TIB&lt;/code&gt;, but in my case I was storing a memory address in &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;TOIN&lt;/code&gt;, so using &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;&amp;gt;in&lt;/code&gt; correctly would require one to subtract the value from &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;tib&lt;/code&gt; in order to obtain the &lt;em&gt;real&lt;/em&gt; &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;&amp;gt;in&lt;/code&gt;.&lt;/p&gt;
+
+&lt;p&gt;I fixed this without changing too much code. The main thing I realized was that my usage of &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;TOIN&lt;/code&gt; within the assembly code was fine. I just needed to make sure the value it stored and loaded to/from memory was not an address.&lt;/p&gt;
+
+&lt;p&gt;The first change was to initialize &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;TOIN&lt;/code&gt; to zero rather than a memory address:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;-    sw t0, 0(t1)        # initialize TOIN variable to contain TIB start address
++    sw zero, 0(t1)      # initialize TOIN variable to contain zero
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Next, when &lt;em&gt;loading&lt;/em&gt; &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;TOIN&lt;/code&gt;, we need to add the address of &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;TIB&lt;/code&gt; so the rest of the code can function as usual. Let’s have a look at the interpreter:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;-    lw a1, 0(t3)                                # load TOIN address value into X working register
++    lw a1, 0(t3)                                # load TOIN value into X working register
++    add a1, a1, t2                              # add TIB to TOIN to get the start address of TOIN
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Then, when &lt;em&gt;storing&lt;/em&gt; &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;TOIN&lt;/code&gt;, we need to subtract the address of &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;TIB&lt;/code&gt;:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;+    li t2, TIB              # load TIB memory address
+     add t0, a0, a1          # add the size of the token to TOIN
++    sub t0, t0, t2          # subtract the address of TOIN from TIB to get the new size of TOIN
+     sw t0, 0(t3)            # move TOIN to process the next word in the TIB
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;See? Here we load &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;TIB&lt;/code&gt; into a temporary because it wasn’t available elsewhere, so we add the size of the token, then we subtract the value of &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;TIB&lt;/code&gt; to obtain the real size of &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;TOIN&lt;/code&gt; before storing it back into the variable. That’s a mouthful but it works and was super easy to implement and validate. I made the same change in &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;COLON&lt;/code&gt; (which also manipulates &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;TOIN&lt;/code&gt;) and we’re good to go.&lt;/p&gt;
+
+&lt;h3 id=&quot;enhancements&quot;&gt;Enhancements&lt;/h3&gt;
+
+&lt;p&gt;Two of the enhancements I focused on were to ensure the user dictionary and data/return stacks don’t overflow (or underflow). We want to make sure our code stays within the memory boundaries assigned to them.&lt;/p&gt;
+
+&lt;p&gt;Another enhancement was regarding error handling, and I’m quite happy about this one. In &lt;em&gt;sectorforth&lt;/em&gt; there’s practically no error handling and many &lt;em&gt;Forths&lt;/em&gt; are somewhat cryptic about what’s going on. We want to know why something went wrong, so let’s add some proper error messages.&lt;/p&gt;
+
+&lt;p&gt;I noticed the code for &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;error, ok, reboot&lt;/code&gt; was quite similar, and I wanted to add other types of messages, so the first step was to create a new macro to print error messages:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;# print a message
+.macro print_error name, size, jump
+    .balign CELL
+  err_\name :
+    la a1, msg_\name    # load string message
+    addi a2, a1, \size  # load string length
+    call uart_print     # call uart print function
+    j \jump             # jump when print returns
+.endm
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;It’s fairly simple, all it does is generate a label (ex: &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;err_error&lt;/code&gt;), code for loading a string message (ex: under the label &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;msg_error&lt;/code&gt;), printing the message, and then jumping to a label specified as an argument.&lt;/p&gt;
+
+&lt;p&gt;It would be used like this:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;print_error error, 4, reset
+msg_error: .ascii &quot;  ?\n&quot;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;When there’s a jump to the label &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;err_error&lt;/code&gt;, it will load the ASCII error message stored in &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;msg_error&lt;/code&gt;, add its size (&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;4&lt;/code&gt;), print it to the UART, then jump to the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;reset&lt;/code&gt; label.&lt;/p&gt;
+
+&lt;p&gt;I defined similar code for other messages as well:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;print_error error, 4, reset
+print_error ok, 6, tib_init
+print_error reboot, 16, _start
+print_error tib, 14, reset
+print_error mem, 16, reset
+print_error token, 14, reset
+print_error underflow, 20, reset
+print_error overflow, 20, reset
+
+msg_error: .ascii &quot;  ?\n&quot;
+msg_ok: .ascii &quot;   ok\n&quot;
+msg_reboot: .ascii &quot;   ok rebooting\n&quot;
+msg_tib: .ascii &quot;   ? tib full\n&quot;
+msg_mem: .ascii &quot;  ? memory full\n&quot;
+msg_token: .ascii &quot;  ? big token\n&quot;
+msg_underflow: .ascii &quot;  ? stack underflow\n&quot;
+msg_overflow: .ascii &quot;   ? stack overflow\n&quot;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;I think that’s slightly more useful than just &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;?&lt;/code&gt; and &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ok&lt;/code&gt; haha.&lt;/p&gt;
+
+&lt;p&gt;The new messages such as &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;msg_mem&lt;/code&gt; and &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;msg_overflow&lt;/code&gt; are for the code which handles the bounds checks on memory and stacks.&lt;/p&gt;
+
+&lt;p&gt;I won’t go into full detail of the changes required to perform bounds checks, but I will highlight a few things.&lt;/p&gt;
+
+&lt;p&gt;First, I defined yet another new macro, this one is for handling errors where the values stored in memory are incomplete. For example during a word lookup, if we’re in &lt;em&gt;compile&lt;/em&gt; mode, we absolutely must not leave the memory in a half-baked state. That means restoring &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;HERE&lt;/code&gt; and &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;LATEST&lt;/code&gt;. The same rule applies when &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;;&lt;/code&gt; (&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;EXIT&lt;/code&gt;) is encountered, if there isn’t enough memory to store that word, then the entire word’s definition must be rolled back. Here’s the new macro to handle that:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;# restore HERE and LATEST variables
+.macro restorevars reg
+    # update HERE
+    li t0, HERE         # load HERE variable into temporary
+    sw \reg, 0(t0)      # store the address of LATEST back into HERE
+
+    # update LATEST
+    li t0, LATEST       # load LATEST variable into temporary
+    lw t1, 0(\reg)      # load LATEST variable value into temporary
+    sw t1, 0(t0)        # store LATEST word into LATEST variable
+.endm
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;It’s quite straightforward, it simply stores the provided register value of &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;LATEST&lt;/code&gt; into &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;HERE&lt;/code&gt;, and then it updates &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;LATEST&lt;/code&gt; to contain the previously stored word in &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;LATEST&lt;/code&gt;. It sounds weird to update &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;LATEST&lt;/code&gt; with &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;LATEST&lt;/code&gt; but actually it’s not, it’s just storing the pointer value of &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;LATEST&lt;/code&gt; into &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;LATEST&lt;/code&gt;, which is a different address. Essentially it ends up restoring the old &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;LATEST&lt;/code&gt; and &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;HERE&lt;/code&gt; variables to the previous state.&lt;/p&gt;
+
+&lt;p&gt;Another important change regarding memory bounds checking… after restoring the variables and jumping to the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;reset&lt;/code&gt; handler, I absolutely want to &lt;strong&gt;zerofill&lt;/strong&gt; the memory. In fact, I want to do this on every reset (physical or virtual). I don’t like the idea of leaving old values in memory after a soft reset, so some code was added to fully zero out the RAM. Of course I was careful to only reset from the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;HERE&lt;/code&gt; address, since we don’t want to lose our correctly defined words haha (if yes, then do a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;reboot&lt;/code&gt; to start from scratch):&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;# reset the RAM from the last defined word
+ram_init:
+    li t0, HERE         # load HERE memory address
+    lw t0, 0(t0)        # load HERE value
+    li t1, PAD          # load PAD variable
+ram_zerofill:
+    # initialize the memory cells
+    beq t0, t1,ram_done # loop until counter (HERE) == PAD
+    sw zero, 0(t0)      # zero-fill the memory address
+    addi t0, t0, CELL   # increment counter by 1 CELL
+    j ram_zerofill      # repeat
+ram_done:
+    # continue to tib_init
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;I guess this code is extremely similar to &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;tib_init&lt;/code&gt;, where it just writes 4 bytes (zeroes) to every memory address from &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;HERE&lt;/code&gt; to &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;PAD&lt;/code&gt; (but it doesn’t touch &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;PAD&lt;/code&gt;). I tested on the &lt;em&gt;Longan Nano&lt;/em&gt;’s 20 KBytes and it’s pretty quick even running at 8 MHz haha. I can’t imagine this would be problematic even on a larger microcontroller, but we’ll see.. the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;reset&lt;/code&gt; only occurs on error anyways (and first boot), so it won’t affect code that’s running fine and error-free.&lt;/p&gt;
+
+&lt;p&gt;Finally, for bounds checks on the stacks, I modified some macros and primitives with code similar to this in the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;POPRSP&lt;/code&gt; macro:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;    li t0, RSP_TOP              # load address of top of RSP
+    bge s2, t0, err_underflow   # jump to error handler if stack underflow
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;The above code performs a stack &lt;em&gt;underflow&lt;/em&gt; check on the return stack. All it does is jump to the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;err_underflow&lt;/code&gt; error handler if the value of the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;RSP&lt;/code&gt; pointer (&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;s2&lt;/code&gt;) is equal or greater than the value of the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;RSP_TOP&lt;/code&gt; constant. Both are memory addresses, and if they’re lined up then it should not be possible to perform a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;POPRSP&lt;/code&gt;. That’s called an &lt;em&gt;underflow&lt;/em&gt;.&lt;/p&gt;
+
+&lt;p&gt;For the &lt;em&gt;overflow&lt;/em&gt; check we can look at the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;PUSH&lt;/code&gt; macro:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;    li t0, RSP_TOP+CELL         # load address of bottom of stack + 1 CELL
+    blt sp, t0, err_overflow    # jump to error handler if stack overflow
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;This is similar to &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;POPRSP&lt;/code&gt; except it’s using the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;RSP_TOP&lt;/code&gt; constant + 1 CELL, which is essentially the &lt;em&gt;last&lt;/em&gt; available memory cell in the data stack. That value is fine, but anything below it is not. That’s why we’re using the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;blt&lt;/code&gt; (branch if less than) RISC-V instruction. If there were a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;blte&lt;/code&gt; instruction (branch if less than or equal) then we could write this instead:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;    li t0, RSP_TOP
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;There might be a simpler way, but I’ll leave that for the optimization stage (soon?).&lt;/p&gt;
+
+&lt;p&gt;So back to the over/under flow checks, anywhere the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;sp&lt;/code&gt; (&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;DSP&lt;/code&gt;) or &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;s2&lt;/code&gt; (&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;RSP&lt;/code&gt;) pointers are manipulated, there will first be a check for a stack overflow or underflow condition. If yes then we’ll print a friendly error message and jump to &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;reset&lt;/code&gt;.&lt;/p&gt;
+
+&lt;h3 id=&quot;closing-thoughts&quot;&gt;Closing thoughts&lt;/h3&gt;
+
+&lt;p&gt;I believe this release is quite stable now, but there’s still a few more enhancements I want to make, such as adding the ability to &lt;em&gt;save&lt;/em&gt; or &lt;em&gt;load&lt;/em&gt; words either from the onboard SD card or from Flash memory. I still need to add the ability to write multi-line word definitions, and the ability to handle hex numbers. However I also want to avoid adding to much to the core &lt;em&gt;Forth&lt;/em&gt; (and avoid writing much more low-level RISC-V Assembly).&lt;/p&gt;
+
+&lt;p&gt;In the next session I’ll focus on the above enhancements and maybe some code cleanup and optimization.&lt;/p&gt;
+</description>
+        <pubDate>Thu, 19 Jan 2023 00:00:00 +0900</pubDate>
+        <link>https://fiveforths.a1w.ca//devlog-38-release-v03</link>
+        <link href="https://fiveforths.a1w.ca/devlog-38-release-v03"/>
+        <guid isPermaLink="true">https://fiveforths.a1w.ca/devlog-38-release-v03</guid>
+      </item>
+    
+      <item>
+        <title>Devlog 37 A Release Or Two</title>
+        <description>&lt;h1 id=&quot;january-10&quot;&gt;January 10&lt;/h1&gt;
+
+&lt;ol&gt;
+  &lt;li&gt;&lt;a href=&quot;#log-37&quot;&gt;Log 37&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;#a-release-or-two&quot;&gt;A release or two&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;#why-so-much-work&quot;&gt;Why so much work&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;#closing-thoughts&quot;&gt;Closing thoughts&lt;/a&gt;&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;h3 id=&quot;log-37&quot;&gt;Log 37&lt;/h3&gt;
+
+&lt;p&gt;In this session I’ll discuss the latest changes I’ve made to the source code, and provide information on the releases.&lt;/p&gt;
+
+&lt;h3 id=&quot;a-release-or-two&quot;&gt;A release or two&lt;/h3&gt;
+
+&lt;p&gt;In the last day I’ve published &lt;a href=&quot;https://github.com/aw/fiveforths/releases&quot;&gt;2 releases&lt;/a&gt; to GitHub. The first, &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;v0.1&lt;/code&gt; was a partial failure because I didn’t realize the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;firmware.bin&lt;/code&gt; did not automatically jump to the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;_start&lt;/code&gt; label. I fixed this by moving it to the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;src/03-interrupts.s&lt;/code&gt; source file:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;# Ensure the _start entry label is defined first
+.text
+.global _start
+_start:
+    j boot
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;The &lt;em&gt;backspace&lt;/em&gt; issue where typing it would completely mess up the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;TIB&lt;/code&gt; is now fixed. Well it turns out there was a line of code which shouldn’t have been there (so I removed it):&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;-    sw a1, 0(t3)            # store new TOIN value in memory
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;This code was storing the updated &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;TOIN&lt;/code&gt; address back to memory, before we even started processing the token. Oops!&lt;/p&gt;
+
+&lt;p&gt;Another change was to add the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;lit&lt;/code&gt; primitive, which makes it possible to add numbers to a colon definition. For example, this works:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;: add5 5 + ;
+10 add5
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;The stack pointer would then have the decimal value &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;15&lt;/code&gt;. Here’s the code for &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;LIT&lt;/code&gt;, it’s inserted right after &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;NAND&lt;/code&gt; and &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;EXIT&lt;/code&gt;:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;# lit ( -- n )          Get the next word from IP and push it to the stack, increment IP
+defcode &quot;lit&quot;, 0x03888c4e, LIT, NAND
+    lw t0, 0(s1)        # load the memory address from IP into temporary
+    PUSH t0             # push the literal to the top of the stack
+    addi s1, s1, CELL   # increment IP by 1 CELL
+    NEXT
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;There’s some other code added to the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;push_number&lt;/code&gt; routine which handles inserting the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;LIT&lt;/code&gt; codeword address to a colon definition (in memory), followed by the actual number, if the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;STATE&lt;/code&gt; of the interpreter was set to &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;1&lt;/code&gt; (&lt;em&gt;compile mode&lt;/em&gt;).&lt;/p&gt;
+
+&lt;p&gt;Finally, that release saw the initial introduction of some actual &lt;em&gt;documentation&lt;/em&gt; in the form of a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;README&lt;/code&gt;. It’s not complete and not final, as I plan to introduce proper documentation in the near future.&lt;/p&gt;
+
+&lt;p&gt;The second release, &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;v0.2&lt;/code&gt; is a bit more polished and has a few improvements.&lt;/p&gt;
+
+&lt;p&gt;The &lt;em&gt;carriage return&lt;/em&gt; and &lt;em&gt;zero&lt;/em&gt; control characters are now completely ignored in the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;interpreter&lt;/code&gt; function:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;# ignore specific characters
+mv t4, zero                                 # load 0x00 zero into temporary
+beq a0, t4, interpreter                     # ignore the character if it matches
+li t4, CHAR_CARRIAGE                        # load 0x0D carriage return into temporary
+beq a0, t4, interpreter                     # ignore the character if it matches
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;We’re ignoring only those ones and not the entire set of &lt;em&gt;non-printable&lt;/em&gt; characters because the others aren’t really problematic, but I may be wrong. It’s not a big deal either way, and can easily be changed if needed.&lt;/p&gt;
+
+&lt;p&gt;The location of the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;_start&lt;/code&gt; entry symbol was revised and moved to the top of the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;fiveforths.s&lt;/code&gt; source file. This guarantees it’ll be located at the start of Flash (&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0x08000000&lt;/code&gt;).&lt;/p&gt;
+
+&lt;p&gt;There’s now a boot message when you first boot/reset the microcontroller, the terminal will display this uneventful greeting:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;FiveForths v0.2, Copyright (c) 2021~ Alexander Williams, https://a1w.ca
+
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;We now have a visual indicator that the &lt;em&gt;Forth&lt;/em&gt; is booted and ready to accept commands. Yay!&lt;/p&gt;
+
+&lt;p&gt;The last three changes are mostly cosmetic but equally important:&lt;/p&gt;
+
+&lt;p&gt;First, I moved all these devlog &lt;em&gt;posts&lt;/em&gt; and their related assets, html pages, build files, etc to the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;gh-pages&lt;/code&gt; git branch. The goal was to cleanup and reorganize the repository so the code remains in the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;master&lt;/code&gt; branch, separate from the &lt;a href=&quot;https://fiveforths.a1w.ca&quot;&gt;devlogs&lt;/a&gt; website.&lt;/p&gt;
+
+&lt;p&gt;Next, the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Makefile&lt;/code&gt; was heavily modified to support building different types of boards with different types of microcontrollers. Some code was split out from the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;src/&lt;/code&gt; source files and moved into &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;src/mcus/gd32vf103/mcu.s&lt;/code&gt;, and other code was moved to &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;src/boards/longan-nano-lite/board.s&lt;/code&gt;. I also added a simplified linker script for each board (ex: the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;longan-nano&lt;/code&gt; has slightly more RAM and double the FLASH of the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;longan-nano-lite&lt;/code&gt;).&lt;/p&gt;
+
+&lt;p&gt;Now it’s possible to specify command-line variables for &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;make&lt;/code&gt; to create various firmware binaries. Here are a few examples:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;make build BOARD=longan-nano
+make build BOARD=longan-nano-lite
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;There’s a few other options but they’ll be described in the upcoming documentation.&lt;/p&gt;
+
+&lt;p&gt;Finally, I added a &lt;a href=&quot;https://docs.github.com/en/actions&quot;&gt;GitHub Action&lt;/a&gt; to automate the firmware builds from this repository. At the moment it builds &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;longan-nano&lt;/code&gt; and &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;longan-nano-lite&lt;/code&gt; firmware, generates the sha256 hash, and uploads them as an artifact of the build process. I then use those exact files in &lt;a href=&quot;https://github.com/aw/fiveforths/releases/tag/v0.2&quot;&gt;the release&lt;/a&gt;. This means you don’t even need the whole RISC-V setup to try &lt;em&gt;FiveForths&lt;/em&gt;, just grab a binary, flash it, and get to work.&lt;/p&gt;
+
+&lt;h3 id=&quot;why-so-much-work&quot;&gt;Why so much work&lt;/h3&gt;
+
+&lt;p&gt;Why put so much effort into a &lt;em&gt;&lt;a href=&quot;https://justforfunnoreally.dev/&quot;&gt;just for fun&lt;/a&gt;&lt;/em&gt; open source project?&lt;/p&gt;
+
+&lt;p&gt;Well this project was &lt;a href=&quot;https://hackaday.com/2023/01/08/forth-cracks-risc-v&quot;&gt;discovered by Hackaday.io&lt;/a&gt; and &lt;a href=&quot;https://www.hackster.io/news/alexander-williams-fiveforths-is-a-hand-written-risc-v-assembly-forth-for-microcontrollers-573b5f0ed9f8&quot;&gt;written about on Hackster.io&lt;/a&gt;, so I suddenly found myself with a pressing need to take this a bit more seriously. I want to make it easier for people to try it, learn more about it, and possibly even provide contributions. Did I mention it’s fun?&lt;/p&gt;
+
+&lt;h3 id=&quot;closing-thoughts&quot;&gt;Closing thoughts&lt;/h3&gt;
+
+&lt;p&gt;I want to make a random shoutout to &lt;a href=&quot;https://github.com/hasheddan&quot;&gt;Daniel Mangum&lt;/a&gt; who did a fantastic job of &lt;a href=&quot;https://danielmangum.com/categories/risc-v-bytes/&quot;&gt;documenting some RISC-V&lt;/a&gt; things.&lt;/p&gt;
+
+&lt;p&gt;The next release will include the updated documentation which I believe will be very helpful for people who want a better idea about &lt;em&gt;FiveForths&lt;/em&gt; without browsing through the source code. It will also contain some &lt;strong&gt;Forth&lt;/strong&gt; code examples and other useful information.&lt;/p&gt;
+
+&lt;p&gt;In the next coding session, I’ll likely focus on the remaining open &lt;a href=&quot;https://github.com/aw/fiveforths/issues&quot;&gt;GitHub issues&lt;/a&gt;, which I labeled as “enhancements” because they aren’t critical to the functioning of &lt;em&gt;FiveForths&lt;/em&gt;.&lt;/p&gt;
+</description>
+        <pubDate>Tue, 10 Jan 2023 00:00:00 +0900</pubDate>
+        <link>https://fiveforths.a1w.ca//devlog-37-a-release-or-two</link>
+        <link href="https://fiveforths.a1w.ca/devlog-37-a-release-or-two"/>
+        <guid isPermaLink="true">https://fiveforths.a1w.ca/devlog-37-a-release-or-two</guid>
+      </item>
+    
+      <item>
+        <title>Devlog 36 From Dtc To Itc</title>
+        <description>&lt;h1 id=&quot;january-07&quot;&gt;January 07&lt;/h1&gt;
+
+&lt;ol&gt;
+  &lt;li&gt;&lt;a href=&quot;#log-36&quot;&gt;Log 36&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;#from-dtc-to-itc&quot;&gt;From DTC to ITC&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;#cleaning-up-lookup&quot;&gt;Cleaning up lookup&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;#closing-thoughts&quot;&gt;Closing thoughts&lt;/a&gt;&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;h3 id=&quot;log-36&quot;&gt;Log 36&lt;/h3&gt;
+
+&lt;p&gt;In this session I fix a few bugs which made me switch threading mode.&lt;/p&gt;
+
+&lt;h3 id=&quot;from-dtc-to-itc&quot;&gt;From DTC to ITC&lt;/h3&gt;
+
+&lt;p&gt;In &lt;em&gt;devlog 29&lt;/em&gt; I mentioned my goal of implementing this &lt;strong&gt;Forth&lt;/strong&gt; as a &lt;em&gt;Direct Threaded Code&lt;/em&gt; (DTC) Forth, but I ended up banging my head on the wall trying to actually make it work &lt;em&gt;correctly&lt;/em&gt;.&lt;/p&gt;
+
+&lt;p&gt;It works but it doesn’t work. The main issue was with executing compiled words which included other compiled words. The address loaded in the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;W&lt;/code&gt; register was the address of the word, not the address pointed to by the word (&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;docol&lt;/code&gt;). There is likely a way to fix it, but I got annoyed with the idea that &lt;em&gt;compiled&lt;/em&gt; words need to be executed differently from &lt;em&gt;primitive&lt;/em&gt; words.&lt;/p&gt;
+
+&lt;p&gt;For that reason, I decided to model my Forth on the classic &lt;em&gt;Indirect Threaded Code&lt;/em&gt; (ITC) approach found in many implementations such as &lt;em&gt;jonesforth&lt;/em&gt; and &lt;em&gt;derzforth&lt;/em&gt;.&lt;/p&gt;
+
+&lt;p&gt;To make these changes, we first need to modify the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;NEXT&lt;/code&gt; macro to add another level of indirection:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;-    jr a0               # jump to the address in W
++    lw t0, 0(a0)        # load address from W into temporary
++    jr t0               # jump to the address in temporary
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Next, I added another level of indirection for jumping to docol:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;-    la a2, docol        # load the codeword address into Y working register
++    la a2, .addr        # load the codeword address into Y working register
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;And the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;.addr&lt;/code&gt; is defined here as a jump to &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;docol&lt;/code&gt;:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;+.addr:
++    j docol             # indirect jump to interpreter after executing a word
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Finally, when executing a word, we want a double-indirection to the outer interpreter similar to &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;NEXT&lt;/code&gt;:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;-.loop: .word process_token  # indirect jump to interpreter after executing a word
++.loop: .word .dloop         # double indirect jump to interpreter
++.dloop: .word process_token # indirect jump to interpreter after executing a word
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;One more change I made was to the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;defcode&lt;/code&gt; macro. I wanted to have specific global labels for each part (link, hash, code), and a global label for the &lt;em&gt;body&lt;/em&gt; which is where the Assembly code is located. This makes everything much more clear when debugging and it’s easier to trace. Here’s the full macro after modifications:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;.macro defcode name, hash, label, link
+    .section .rodata
+    .balign CELL        # align to CELL bytes boundary
+    .globl word_\label
+  word_\label :
+    .4byte word_\link   # 32-bit pointer to codeword of link
+    .globl hash_\label
+  hash_\label :
+    .4byte \hash        # 32-bit hash of this word
+    .globl code_\label
+  code_\label :
+    .4byte body_\label  # 32-bit pointer to codeword of label
+    .globl body_\label
+  body_\label :         # assembly code below
+.endm
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Now we can test some Forth code in the terminal. First we’ll define &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;dup&lt;/code&gt;, then we’ll define &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;invert&lt;/code&gt;, then we’ll call &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;invert&lt;/code&gt; on the stack value &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;-66&lt;/code&gt;, and emit that to the terminal. It should print an &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;A&lt;/code&gt; which is &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0x00000041&lt;/code&gt; or decimal &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;65&lt;/code&gt; (&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;nand&lt;/code&gt; of &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;-66&lt;/code&gt; and &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;-66&lt;/code&gt;):&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;: dup sp@ @ ;&amp;lt;Enter&amp;gt;   ok
+: invert dup nand ;&amp;lt;Enter&amp;gt;   ok
+-66 invert&amp;lt;Enter&amp;gt;   ok
+emit&amp;lt;Enter&amp;gt; A   ok
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;&lt;strong&gt;Yessss!!!&lt;/strong&gt;&lt;/p&gt;
+
+&lt;h3 id=&quot;cleaning-up-lookup&quot;&gt;Cleaning up lookup&lt;/h3&gt;
+
+&lt;p&gt;The &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;lookup&lt;/code&gt; function was not cleaning up after itself when an error was found. This was not an issue when &lt;em&gt;executing&lt;/em&gt; words, only when &lt;em&gt;compiling&lt;/em&gt; because it would essentially leave a word half-compiled in memory.&lt;/p&gt;
+
+&lt;p&gt;I think the first change is to make a copy of &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;LATEST&lt;/code&gt; once we enter the function. This is the value we want to restore if there’s an error, but we only want to do it once:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt; lookup:
+-    beqz a1, error              # error if the address is 0 (end of the dictionary)
++    mv t2, a1                   # copy the address of LATEST
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Next, we want to move our guard to the loop part, which will happen on every word that’s looked up:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;+lookup_loop:
++    beqz a1, lookup_error       # error if the address is 0 (end of the dictionary)
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;In &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;lookup_next&lt;/code&gt;, we want to jump to the loop instead, so let’s change that:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;-    j lookup
++    j lookup_loop
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Then we can begin to define our custom lookup error handler:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;lookup_error:
+    # check the STATE
+    li t0, STATE                # load the address of the STATE variable into temporary
+    lw t0, 0(t0)                # load the current state into a temporary
+    beqz t0, error              # if in execute mode (STATE = 0), jump to error handler to reset
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;First want want to check the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;STATE&lt;/code&gt; of the interpreter. If we’re in &lt;em&gt;execute&lt;/em&gt; mode then it’s safe to jump to the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;error&lt;/code&gt; function which will handle resetting things (without touching &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;HERE&lt;/code&gt; or &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;LATEST&lt;/code&gt;).&lt;/p&gt;
+
+&lt;p&gt;Otherwise, if we’re in &lt;em&gt;compile&lt;/em&gt; mode, we want to store our previously saved &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;LATEST&lt;/code&gt; value into &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;HERE&lt;/code&gt;. This rolls back the memory address of &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;HERE&lt;/code&gt; as if we didn’t even define a word:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;    # update HERE since we're in compile mode
+    li t0, HERE                 # load HERE variable into temporary
+    sw t2, 0(t0)                # store the address of LATEST back into HERE
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Next, we want to update &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;LATEST&lt;/code&gt; so it points back to the previous word that was defined before the current one. That address is actually still there in memory, at the location pointed to by &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;HERE&lt;/code&gt; (the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;t2&lt;/code&gt; register from earlier):&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;    # update LATEST since we're in compile mode
+    li t0, LATEST               # load LATEST variable into temporary
+    lw t1, 0(t2)                # load LATEST variable value into temporary
+    sw t1, 0(t0)                # store LATEST word into LATEST variable
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Once that’s done, we can jump to the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;error&lt;/code&gt; function to handle resetting other things:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;    j error                     # jump to error handler
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h3 id=&quot;closing-thoughts&quot;&gt;Closing thoughts&lt;/h3&gt;
+
+&lt;p&gt;Alright, now &lt;em&gt;everything&lt;/em&gt; actually works!! (I hope)&lt;/p&gt;
+
+&lt;p&gt;Now there’s only one small bug remaining, which is related to hitting backspace in the terminal. It’s probably a small issue, but I’ll get to that eventually. In the next session, I’ll publish the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;README&lt;/code&gt;, and work on the documentation, examples, optimizations, and code cleanup.&lt;/p&gt;
+</description>
+        <pubDate>Sat, 07 Jan 2023 00:00:00 +0900</pubDate>
+        <link>https://fiveforths.a1w.ca//devlog-36-from-dtc-to-itc</link>
+        <link href="https://fiveforths.a1w.ca/devlog-36-from-dtc-to-itc"/>
+        <guid isPermaLink="true">https://fiveforths.a1w.ca/devlog-36-from-dtc-to-itc</guid>
+      </item>
+    
+      <item>
+        <title>Devlog 35 Compiling Words Pt2</title>
+        <description>&lt;h1 id=&quot;january-06&quot;&gt;January 06&lt;/h1&gt;
+
+&lt;ol&gt;
+  &lt;li&gt;&lt;a href=&quot;#log-35&quot;&gt;Log 35&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;#compiling-words-pt2&quot;&gt;Compiling words pt2&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;#done&quot;&gt;Done&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;#closing-thoughts&quot;&gt;Closing thoughts&lt;/a&gt;&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;h3 id=&quot;log-35&quot;&gt;Log 35&lt;/h3&gt;
+
+&lt;p&gt;In this session, I actually plan on fixing compilation and getting to &lt;strong&gt;DONE!&lt;/strong&gt;&lt;/p&gt;
+
+&lt;h3 id=&quot;compiling-words-pt2&quot;&gt;Compiling words pt2&lt;/h3&gt;
+
+&lt;p&gt;I decided to step through the execution of a compiled word: &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;dup&lt;/code&gt; using &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;GDB&lt;/code&gt;.&lt;/p&gt;
+
+&lt;p&gt;The first problem I noticed was the indirect jump to &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;docol&lt;/code&gt; in &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;COLON&lt;/code&gt; was not working. In fact, it doesn’t need any indirection since we’re actually jumping straight to it. Let’s fix that:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;-    la a2, .addr        # load the codeword address into Y working register
++    la a2, docol        # load the codeword address into Y working register
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;And then we can get rid of &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;.addr&lt;/code&gt;:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;-.addr: .word docol      # indirect jump to docol from a colon definition
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Next issue was in &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;docol&lt;/code&gt;, we don’t expect the code field address in &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Y&lt;/code&gt;, that makes no sense. We expect it in &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;W&lt;/code&gt;, like in every other &lt;strong&gt;Forth&lt;/strong&gt;:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;-    addi s1, a2, CELL   # skip code field in Y by adding a CELL, store it in IP
++    addi s1, a0, CELL   # skip code field in W by adding 1 CELL, store it in IP
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Finally, the macro &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;defcode&lt;/code&gt; for defining a word was completely wacky. It had a mix of code from &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;sectorforth&lt;/code&gt; and &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;jonesforth&lt;/code&gt; and some weirdness added by me because I store a &lt;em&gt;hash&lt;/em&gt; of the word instead of the &lt;em&gt;length+name&lt;/em&gt;. In any case, I had to rewrite the entire macro and I ended up with this:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;.macro defcode name, hash, label, link
+    .section .rodata
+    .balign CELL        # align to CELL bytes boundary
+    .globl word_\label
+  word_\label :
+    .4byte word_\link   # 32-bit pointer to codeword of link
+    .globl hash_\label
+  hash_\label :
+    .4byte \hash        # 32-bit hash of this word
+    .4byte code_\label  # 32-bit pointer to codeword of label
+    .globl code_\label
+  code_\label :         # assembly code below
+.endm
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;This is a bit better. The &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;codefield&lt;/code&gt; now points to &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;hash_\label+4&lt;/code&gt;, which will move directly to the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;code_\label&lt;/code&gt;. I think that adds an extra cycle and would rather have the code jump to &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;code_\label&lt;/code&gt;, but when I do that the interpreter crashes… I guess I’ll need to fix that another time.&lt;/p&gt;
+
+&lt;p&gt;For the time being, let’s test out our &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;dup&lt;/code&gt; once more in the terminal:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;: dup sp@ @ ;&amp;lt;Enter&amp;gt;  ok
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;And let’s inspect the 6 values in &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;GDB&lt;/code&gt;:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;(gdb) x/6xw 0x20000000
+0x20000000:	0x080004d0	0x03886bce	0x080004c0	0x080002b4
+0x20000010:	0x0800027c	0x08000344
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;The first 2 are the link to the previous word and the hash.. unchanged since the previous &lt;em&gt;devlog&lt;/em&gt;:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;(gdb) x/xw 0x080004c0
+0x80004c0 &amp;lt;docol&amp;gt;:	0xfe992e23
+(gdb) x/xw 0x080002b4
+0x80002b4 &amp;lt;hash_DSPFETCH+4&amp;gt;:	0x080002b8
+(gdb) x/xw 0x0800027c
+0x800027c &amp;lt;hash_FETCH+4&amp;gt;:	0x08000280
+(gdb) x/xw 0x08000344
+0x8000344 &amp;lt;code_EXIT&amp;gt;:	0x00092483
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;&lt;strong&gt;Perfect!!&lt;/strong&gt; (&lt;em&gt;almost&lt;/em&gt;).&lt;/p&gt;
+
+&lt;p&gt;If I gather up the courage to fix the issue I mentioned above, it would look like &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;docol, code_DSPFETCH, code_FETCH, code_EXIT&lt;/code&gt;. Now let’s try running &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;dup&lt;/code&gt; in the terminal:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;123 dup&amp;lt;Enter&amp;gt;  ok
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;This should leave &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;123&lt;/code&gt; as the first two entries in the stack. Let’s check the stack with &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;GDB&lt;/code&gt;:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;(gdb) i r sp
+sp             0x20004ff8 0x20004ff8
+(gdb) x/dw 0x20004ff8
+0x20004ff8: 123
+(gdb) x/dw 0x20004ff8+4
+0x20004ffc: 123
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;&lt;strong&gt;Great!&lt;/strong&gt;&lt;/p&gt;
+
+&lt;p&gt;Now we have confirmation that we can &lt;em&gt;execute&lt;/em&gt; AND &lt;em&gt;compile&lt;/em&gt; words!!&lt;/p&gt;
+
+&lt;h3 id=&quot;done&quot;&gt;Done&lt;/h3&gt;
+
+&lt;p&gt;And there we have it, my first fully functional &lt;strong&gt;Forth&lt;/strong&gt; (and programming language written from scratch).&lt;/p&gt;
+
+&lt;h3 id=&quot;closing-thoughts&quot;&gt;Closing thoughts&lt;/h3&gt;
+
+&lt;p&gt;This is super exciting! There are still a few minor bugs to fix and features to add, but I’ll focus on bugs/optimizations first, code cleanup and comments, and maybe getting some examples and a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;README&lt;/code&gt; up for others to use this.&lt;/p&gt;
+</description>
+        <pubDate>Fri, 06 Jan 2023 00:00:00 +0900</pubDate>
+        <link>https://fiveforths.a1w.ca//devlog-35-compiling-words-pt2</link>
+        <link href="https://fiveforths.a1w.ca/devlog-35-compiling-words-pt2"/>
+        <guid isPermaLink="true">https://fiveforths.a1w.ca/devlog-35-compiling-words-pt2</guid>
+      </item>
+    
+      <item>
+        <title>Devlog 34 Compiling Words</title>
+        <description>&lt;h1 id=&quot;january-06&quot;&gt;January 06&lt;/h1&gt;
+
+&lt;ol&gt;
+  &lt;li&gt;&lt;a href=&quot;#log-34&quot;&gt;Log 34&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;#printing-strings&quot;&gt;Printing strings&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;#rebooting-the-mcu&quot;&gt;Rebooting the MCU&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;#compiling-words&quot;&gt;Compiling words&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;#closing-thoughts&quot;&gt;Closing thoughts&lt;/a&gt;&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;h3 id=&quot;log-34&quot;&gt;Log 34&lt;/h3&gt;
+
+&lt;p&gt;In this session I will work on compiling words, but before that I want to add 2 new features to my Forth: &lt;em&gt;printing strings&lt;/em&gt; and &lt;em&gt;rebooting the mcu&lt;/em&gt;.&lt;/p&gt;
+
+&lt;h3 id=&quot;printing-strings&quot;&gt;Printing strings&lt;/h3&gt;
+
+&lt;p&gt;The previous approach to printing strings over the UART was to repeat the same 2 lines of code for every character. To print ` ok\n` we would write this:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt; ok:
+    li a0, CHAR_SPACE
+    call uart_put
+    li a0, 'o'
+    call uart_put
+    li a0, 'k'
+    call uart_put
+    li a0, CHAR_NEWLINE
+    call uart_put
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;This works fine for short strings, but it’s quite bothersome and ugly for longer strings.&lt;/p&gt;
+
+&lt;p&gt;Here’s my short implementation of a UART “print” function:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;uart_print:
+    mv s3, ra                   # save the return address
+uart_print_loop:
+    beq a1, a2, uart_print_done # done if we've printed all characters
+    lbu a0, 0(a1)               # load 1 character from the message string
+    call uart_put
+    addi a1, a1, 1              # increment the address by 1
+    j uart_print_loop           # loop to print the next message
+uart_print_done:
+    mv ra, s3                   # restore the return address
+    ret
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;It accepts 2 arguments:&lt;/p&gt;
+
+&lt;ul&gt;
+  &lt;li&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;a1&lt;/code&gt; which contains the memory address of the start of a string (I’ll show an example later).&lt;/li&gt;
+  &lt;li&gt;&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;a2&lt;/code&gt; which contains the address of the string + its length.&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;The &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;uart_print&lt;/code&gt; starts by saving the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ra&lt;/code&gt; register and ends by restoring it. We do this because the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;call uart_put&lt;/code&gt; would otherwise clobber &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ra&lt;/code&gt; and it would be unable to return after printing.&lt;/p&gt;
+
+&lt;p&gt;The &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;uart_print_loop&lt;/code&gt; simply loops over each character in the string, printing a character at each iteration. It increments the string’s address (&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;a1&lt;/code&gt;) until it’s the same as &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;a2&lt;/code&gt;.&lt;/p&gt;
+
+&lt;p&gt;Here’s how we would use it instead of the above &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ok&lt;/code&gt; function:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;ok:
+    la a1, msg_ok       # load string message
+    addi a2, a1, 6      # load string length
+    call uart_print     # call uart print function
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;And we could define the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;msg_ok&lt;/code&gt; string like this:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;msg_ok: .ascii &quot;   ok\n&quot;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Note the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;.ascii&lt;/code&gt; string is &lt;em&gt;NOT&lt;/em&gt; null terminated, and it must be aligned to 2 bytes. In other words a 3 or 5 byte string would not work.&lt;/p&gt;
+
+&lt;p&gt;Let’s do something similar to &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;error&lt;/code&gt;:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;error:
+    la a1, msg_error    # load string message
+    addi a2, a1, 4      # load string length
+    call uart_print     # call uart print function
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;And define the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;msg_error&lt;/code&gt; like this:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;msg_error: .ascii &quot;  ?\n&quot;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h3 id=&quot;rebooting-the-mcu&quot;&gt;Rebooting the MCU&lt;/h3&gt;
+
+&lt;p&gt;I often find myself wanting to test a &lt;em&gt;clean slate&lt;/em&gt; of the Forth, without physically resetting the device (which requires restarting openocd and gdb). So I decided to add a new primitive called &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;reboot&lt;/code&gt;, which jumps directly to the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;_start&lt;/code&gt; initialization procedure:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;# reboot ( -- )         # Reboot the entire system and initialize memory
+defcode &quot;reboot&quot;, 0x06266b70, REBOOT, NULL
+    j reboot            # jump to reboot
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;I then had to modify &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;FETCH&lt;/code&gt; to link to &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;REBOOT&lt;/code&gt; instead of &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;NULL&lt;/code&gt;:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;-defcode &quot;@&quot;, 0x0102b5e5, FETCH, NULL
++defcode &quot;@&quot;, 0x0102b5e5, FETCH, REBOOT
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Now let’s define the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;reboot&lt;/code&gt; function:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;reboot:
+    la a1, msg_reboot   # load string message
+    addi a2, a1, 12     # load string length
+    call uart_print     # call uart print function
+    j _start            # reboot when print returns
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;It’s pretty much the same as &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ok&lt;/code&gt; and &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;error&lt;/code&gt;, with a different string message and different jump to address. Here’s the message:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;msg_reboot: .ascii &quot;  rebooting\n&quot;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;So now typing &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;reboot&amp;lt;Enter&amp;gt;&lt;/code&gt; in the terminal will display the string &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;rebooting&lt;/code&gt; and everything will be reset as if we first booted the device. Of course I realize this might be problematic once interrupts are enabled, but I think by then I’ll be able to remove this primitive and functionality.&lt;/p&gt;
+
+&lt;h3 id=&quot;compiling-words&quot;&gt;Compiling words&lt;/h3&gt;
+
+&lt;p&gt;Now the final missing element of this &lt;strong&gt;Forth&lt;/strong&gt;, &lt;em&gt;compiling words&lt;/em&gt;!!&lt;/p&gt;
+
+&lt;p&gt;The first change is to fix some minor issues in our macros. In 3 macros we’re decrementing the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;sp&lt;/code&gt; stack pointer by 1 CELL &lt;em&gt;before&lt;/em&gt; performing an operation, which is fine except when that operation involves the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;sp&lt;/code&gt; pointer. Let’s change the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;PUSH&lt;/code&gt; macro first, and I’ll explain the difference afterwards:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt; .macro PUSH reg
++    sw \reg, -CELL(sp)  # store the value in the register to the top of the DSP
+     addi sp, sp, -CELL  # move the DSP down by 1 cell
+-    sw \reg, 0(sp)      # store the value in the register to the top of the DSP
+ .endm
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Here we moved the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;sw&lt;/code&gt; instruction so it’s performed first, before decrementing the pointer. But we’re also storing it at the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;-4&lt;/code&gt; offset. This was necessary for something like &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;PUSH sp&lt;/code&gt; to work, where we want to push the current &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;sp&lt;/code&gt; address not the next address (&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;sp - 4&lt;/code&gt;).&lt;/p&gt;
+
+&lt;p&gt;We’ll make a similar change to &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;PUSHRSP&lt;/code&gt;:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt; .macro PUSHRSP reg
++    sw \reg, -CELL(s2)  # store value from register into RSP
+     addi s2, s2, -CELL  # decrement RSP by 1 cell
+-    sw \reg, 0(s2)      # store value from register into RSP
+ .endm
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;And finally we’ll also modify &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;PUSHVAR&lt;/code&gt; to load the register and then store it in &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;sp - 4&lt;/code&gt; before moving the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;sp&lt;/code&gt; pointer down by 1 CELL.&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt; .macro PUSHVAR var
+-    addi sp, sp, -CELL  # move the DSP down by 1 cell
+     li t0, \var         # load variable into temporary
+-    sw t0, 0(sp)        # store the variable value to the top of the DSP
++    sw t0, -CELL(sp)    # store the variable value to the top of the DSP
++    addi sp, sp, -CELL  # move the DSP down by 1 cell
+ .endm
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;In the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;COLON&lt;/code&gt; primitive (inner interpreter), we need to do the &lt;em&gt;exact same thing&lt;/em&gt; as in &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;process_token&lt;/code&gt; (outer interpreter) before and after calling &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;token&lt;/code&gt;, so let’s replace the existing code:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt; defcode &quot;:&quot;, 0x0102b5df, COLON, LATEST
+-    li a0, TIB          # load TIB into W
+-    li t3, TOIN         # load the TOIN variable into unused temporary register
+-    lw a1, 0(t3)        # load TOIN address value into X working register
++    li t3, TOIN         # load TOIN variable into unused temporary register
++    lw a0, 0(t3)        # load TOIN address value into temporary
+     call token          # read the token
+
++    # move TOIN
++    add t0, a0, a1      # add the size of the token to TOIN
++    sw t0, 0(t3)        # move TOIN to process the next word in the TIB
++
+     # bounds checks on token size
+-    beqz a1, error      # error if token size is 0
++    beqz a1, ok         # ok if token size is 0
+     li t0, 32           # load max token size  (2^5 = 32) in temporary
+     bgtu a1, t0, error  # error if token size is greater than 32
+
+-    # store the word then hash it
+-    sw a0, 0(t3)        # store new address into TOIN variable
+     call djb2_hash      # hash the token
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Now &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;COLON&lt;/code&gt;’s first few lines are identical to &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;process_token&lt;/code&gt;.&lt;/p&gt;
+
+&lt;p&gt;We’ll also need to fix a bug I discovered when storing the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;code_EXIT&lt;/code&gt; address at the end of a word:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;-    sw t1, 0(t0)        # store the codeword address into HERE
++    sw t1, 0(t2)        # store the codeword address into HERE
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;The actual &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;HERE&lt;/code&gt; address was stored in &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;t2&lt;/code&gt; but I accidentally used &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;t0&lt;/code&gt; which means &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;EXIT&lt;/code&gt; would not be written to the correct memory location.&lt;/p&gt;
+
+&lt;p&gt;Now let’s look at our &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;compile&lt;/code&gt; function, called from the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;process_token&lt;/code&gt; (outer interpreter). The first step is to find the codeword address, which is 2 CELLs down:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;compile:
+    addi t0, a1, 2*CELL     # increment the address of the found word by 8 to get the codeword address
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Then we’ll load &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;HERE&lt;/code&gt; into a temporary, and store the codeword in there:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;    li t1, HERE             # load HERE variable into temporary
+    lw t2, 0(t1)            # load HERE value into temporary
+    sw t0, 0(t2)            # write the address of the codeword to the current definition
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Afterwards we can increment &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;HERE&lt;/code&gt; by 1 CELL and store its value back, before jumping back to process the next token:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;    addi t0, t2, CELL       # increment HERE by 4
+    sw t0, 0(t1)            # store new HERE address
+compile_done:
+    j process_token
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;&lt;strong&gt;That’s it!&lt;/strong&gt;&lt;/p&gt;
+
+&lt;p&gt;At least.. I think that’s it. Let’s try to compile a word in the terminal:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;: dup sp@ @ ;&amp;lt;Enter&amp;gt;  ok
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;So far so good, maybe? Let’s check the user dictionary with &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;GDB&lt;/code&gt;. This should store 6 values in memory starting from &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0x20000000&lt;/code&gt;, three values for &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;dup&lt;/code&gt; (link, hash, codeword), one address for &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;sp@&lt;/code&gt; (&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;DSPFETCH&lt;/code&gt;), one address for &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;@&lt;/code&gt; (&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;FETCH&lt;/code&gt;) and one address for &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;exit&lt;/code&gt; (&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;code_EXIT&lt;/code&gt;):&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;(gdb) x/6xw 0x20000000
+0x20000000:	0x08000650	0x03886bce	0x080003f4	0x080005b0
+0x20000010:	0x08000598	0x080005ec
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Now let’s look at each value:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;(gdb) x/xw 0x08000650
+0x8000650 &amp;lt;word_SEMI&amp;gt;:	0x08000644
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;That’s our link to the previous word. Then &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0x03886bce&lt;/code&gt; is the hash of the word &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;dup&lt;/code&gt;.&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;(gdb) x/xw 0x080003f4
+0x80003f4 &amp;lt;.addr&amp;gt;:	0x080003e4
+(gdb) x/xw 0x080003e4
+0x80003e4 &amp;lt;docol&amp;gt;:	0xfe992e23
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Next we have the address of &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;.addr&lt;/code&gt; which points to &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;docol&lt;/code&gt;. This is where I’m still a bit confused, and it might be totally wrong.&lt;/p&gt;
+
+&lt;p&gt;Next let’s examine the remaining 3 values:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;(gdb) x/xw 0x080005b0
+0x80005b0 &amp;lt;code_DSPFETCH&amp;gt;:	0x08000284
+(gdb) x/xw 0x08000598
+0x8000598 &amp;lt;code_FETCH&amp;gt;:	0x08000264
+(gdb) x/xw 0x080005ec
+0x80005ec &amp;lt;code_EXIT&amp;gt;:	0x080002d4
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;All that looks pretty good to me. Let’s store a value in the stack, and then use &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;dup&lt;/code&gt; to duplicate it on the stack (which is what &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;sp@ @&lt;/code&gt; does):&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;456 dup&amp;lt;Enter&amp;gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;…crash&lt;/p&gt;
+
+&lt;p&gt;Well… I guess that doesn’t work. The word was definitely &lt;em&gt;compiled&lt;/em&gt; and stored in memory, but there’s clearly something wrong in there. I have a feeling this might be related to the compiled &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;.addr -&amp;gt; docol&lt;/code&gt; address, but I’m not sure.&lt;/p&gt;
+
+&lt;h3 id=&quot;closing-thoughts&quot;&gt;Closing thoughts&lt;/h3&gt;
+
+&lt;p&gt;In the next session I’ll manually step through the execution of my newly defined &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;dup&lt;/code&gt; word, and see if I can find the problem. Hopefully I’ll be able to fix this in the next session, and then I’ll have a fully functional &lt;strong&gt;Forth&lt;/strong&gt;. Yay!&lt;/p&gt;
+</description>
+        <pubDate>Fri, 06 Jan 2023 00:00:00 +0900</pubDate>
+        <link>https://fiveforths.a1w.ca//devlog-34-compiling-words</link>
+        <link href="https://fiveforths.a1w.ca/devlog-34-compiling-words"/>
+        <guid isPermaLink="true">https://fiveforths.a1w.ca/devlog-34-compiling-words</guid>
+      </item>
+    
+      <item>
+        <title>Devlog 33 Storing Numbers</title>
+        <description>&lt;h1 id=&quot;january-05-2023&quot;&gt;January 05, 2023&lt;/h1&gt;
+
+&lt;ol&gt;
+  &lt;li&gt;&lt;a href=&quot;#log-33&quot;&gt;Log 33&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;#storing-numbers&quot;&gt;Storing numbers&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;#closing-thoughts&quot;&gt;Closing thoughts&lt;/a&gt;&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;h3 id=&quot;log-33&quot;&gt;Log 33&lt;/h3&gt;
+
+&lt;p&gt;I know I promised I would get to compile words, but that’s hard so instead in this session i’ll add the ability to store numbers on the stack. Once that works then I’ll get to compiling words hahaha.&lt;/p&gt;
+
+&lt;h3 id=&quot;storing-numbers&quot;&gt;Storing numbers&lt;/h3&gt;
+
+&lt;p&gt;The &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;number&lt;/code&gt; routine has already been written in &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;src/05-internal-functions.s&lt;/code&gt;, but we had no code to call it. Unlike most &lt;strong&gt;Forths&lt;/strong&gt;, I don’t want to check if it’s a number &lt;em&gt;after&lt;/em&gt; checking if it’s a known word. That concept seems strange to me. For starters, we already know what a number will look like. Since we’re only dealing with &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;base 10&lt;/code&gt; numbers for the moment, we can define a number as “a series of digits optionally prefixed by a minus sign”.&lt;/p&gt;
+
+&lt;p&gt;In that case, I’d rather we scan for a number &lt;em&gt;before&lt;/em&gt; calling &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;djb2_hash&lt;/code&gt;.&lt;/p&gt;
+
+&lt;p&gt;One oversight is the registers need to be saved before calling &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;number&lt;/code&gt;, because it clobbers the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;a0&lt;/code&gt; and &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;a1&lt;/code&gt; registers. I could fix this but I’ll save that for the optimization step. For now, let’s just save/restore them:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;    # check if the token is a number
+    mv t5, a0               # save a0 temporarily
+    mv t6, a1               # save a1 temporarily
+    call number             # try to convert the token to an integer
+    bnez a1, push_number    # push the token to the stack if it's a number
+    mv a0, t5               # restore a0
+    mv a1, t6               # restore a1
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Here we’re saving the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;W&lt;/code&gt; and &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;X&lt;/code&gt; working registers to temporary registers, and then calling &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;number&lt;/code&gt;, which will return the result of the operation in &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;X&lt;/code&gt;. If the result is not &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0&lt;/code&gt; (ex: &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;1&lt;/code&gt;), then we have a valid number so we’ll call &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;push_number&lt;/code&gt; to store the number (stored in &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;W&lt;/code&gt;) on the stack:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;push_number:
+    PUSH a0                 # push the W working register to the top of the data stack
+    j process_token         # jump back to process the next token
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;This then jumps right back to processing the next token, completely skipping the hash/lookup/compile/execute steps. Let’s try adding numbers and a variable to the stack in the terminal:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;-2147483648 -2147483649 state 4294967296 -100 100 12345 -31234567&amp;lt;Enter&amp;gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;A few notes: &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;-2147483649&lt;/code&gt; should translate to &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;2147483647&lt;/code&gt; as mentioned in &lt;em&gt;devlog 26&lt;/em&gt;. The &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;state&lt;/code&gt; variable will be its address, which is &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0x20004cfc&lt;/code&gt; (or decimal &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;536890620&lt;/code&gt;), and &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;4294967296&lt;/code&gt; should translate to &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0&lt;/code&gt;. Let’s check in &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;GDB&lt;/code&gt;, starting at the top of the stack and going down by 32 bytes (4 bytes x 8 values):&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;(gdb) x/8dw 0x20005000-32
+0x20004fe0:	-31234567	12345	100	-100
+0x20004ff0:	0	536890620	2147483647	-2147483648
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Great! That works just as expected. Now we can store numbers on the stack, and non-numbers will be hashed and searched for in the dictionary.&lt;/p&gt;
+
+&lt;h3 id=&quot;closing-thoughts&quot;&gt;Closing thoughts&lt;/h3&gt;
+
+&lt;p&gt;Well that was easier than expected, let’s just hope I didn’t make a fatal mistake.. but so far it seems to work fine. In the next session I have no other choice but to jump to the &lt;em&gt;compile&lt;/em&gt; mode and try to get that working. It might require a review of &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;COLON&lt;/code&gt; and &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;SEMI&lt;/code&gt;… we’ll see.&lt;/p&gt;
+</description>
+        <pubDate>Thu, 05 Jan 2023 00:00:00 +0900</pubDate>
+        <link>https://fiveforths.a1w.ca//devlog-33-storing-numbers</link>
+        <link href="https://fiveforths.a1w.ca/devlog-33-storing-numbers"/>
+        <guid isPermaLink="true">https://fiveforths.a1w.ca/devlog-33-storing-numbers</guid>
+      </item>
+    
+      <item>
+        <title>Devlog 32 Fixing Bugs</title>
+        <description>&lt;h1 id=&quot;january-04-2023&quot;&gt;January 04, 2023&lt;/h1&gt;
+
+&lt;ol&gt;
+  &lt;li&gt;&lt;a href=&quot;#log-32&quot;&gt;Log 32&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;#fixing-dsp&quot;&gt;Fixing DSP&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;#fixing-macros&quot;&gt;Fixing macros&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;#fixing-primitives&quot;&gt;Fixing primitives&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;#closing-thoughts&quot;&gt;Closing thoughts&lt;/a&gt;&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;h3 id=&quot;log-32&quot;&gt;Log 32&lt;/h3&gt;
+
+&lt;p&gt;In this session I’ll focus on fixing some bugs I discovered with the data stack.&lt;/p&gt;
+
+&lt;h3 id=&quot;fixing-dsp&quot;&gt;Fixing DSP&lt;/h3&gt;
+
+&lt;p&gt;In &lt;em&gt;devlog 2&lt;/em&gt;, I introduced the idea of a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;TOS&lt;/code&gt; (top of stack) register. It’s not new to &lt;strong&gt;Forth&lt;/strong&gt;, but it was new to me. The idea was to use a saved register (&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;s3&lt;/code&gt;) to keep the top element of the stack. It would slightly simplify certain operations but also complicate others.&lt;/p&gt;
+
+&lt;p&gt;One of the biggest issues I’ve run into is regarding the initialization routine, particularly this line:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;    mv s3, zero                 # initialize TOS register
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;This sets the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;TOS&lt;/code&gt; register to a known value: &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0&lt;/code&gt;. So far so good, however let’s take a look at our &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;PUSH&lt;/code&gt; macro:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;# push register to top of stack and move TOS to DSP
+.macro PUSH reg
+    addi sp, sp, -CELL  # move the DSP down by 1 cell
+    sw s3, 0(sp)        # store the value in the TOS to the top of the DSP
+    mv s3, \reg         # copy register into TOS
+.endm
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;It first decrements the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;DSP&lt;/code&gt; (&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;sp&lt;/code&gt;) pointer by 1 CELL before storing the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;TOS&lt;/code&gt; value into it, and then copying whatever register was pushed.&lt;/p&gt;
+
+&lt;p&gt;Here’s an example:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;PUSH a0
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Seems simple, but it’s bad. The very first &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;PUSH&lt;/code&gt; will actually end up copying the value &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0&lt;/code&gt; to the top of the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;DSP&lt;/code&gt; (pointed at by &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;sp&lt;/code&gt;, which will be address &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0x20004FFC&lt;/code&gt;), and it will store the value from &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;a0&lt;/code&gt; into &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;TOS&lt;/code&gt; (&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;s3&lt;/code&gt;). So now, our stack actually has 2 elements! Oops!! In fact, the very first &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;PUSH&lt;/code&gt; should only write to &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;TOS&lt;/code&gt; without moving the stack pointer… thus ignoring the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0&lt;/code&gt; in the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;TOS&lt;/code&gt;, but I think coding for that condition is a bit ridiculous because the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;TOS&lt;/code&gt; could potentially have a value we want, ex: if &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0=&lt;/code&gt; was the first command, then &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;TOS&lt;/code&gt; would contain &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;1&lt;/code&gt;…&lt;/p&gt;
+
+&lt;p&gt;So, at this point I just want to get rid of the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;TOS&lt;/code&gt; (&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;s3&lt;/code&gt;) register and only use the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;DSP&lt;/code&gt;. The entire time I’ve always had to think extra hard about the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;TOS&lt;/code&gt; register and now that I’ve encountered this bug, I just want it to disappear.&lt;/p&gt;
+
+&lt;h3 id=&quot;fixing-macros&quot;&gt;Fixing macros&lt;/h3&gt;
+
+&lt;p&gt;To start, I’ll edit the macros in &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;src/02-macros.s&lt;/code&gt; to only use the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;DSP&lt;/code&gt;. Here are the changes to the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;POP&lt;/code&gt; macro:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt; .macro POP reg
+-    mv \reg, s3         # copy TOS to register
+-    lw s3, 0(sp)        # load DSP value to register
++    lw \reg, 0(sp)      # load DSP value to register
+     addi sp, sp, CELL   # move the DSP up by 1 cell
+ .endm
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;and the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;PUSH&lt;/code&gt; macro:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt; .macro PUSH reg
+     addi sp, sp, -CELL  # move the DSP down by 1 cell
+-    sw s3, 0(sp)        # store the value in the TOS to the top of the DSP
+-    mv s3, \reg         # copy register into TOS
++    sw \reg, 0(sp)      # store the value in the register to the top of the DSP
+ .endm
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;The above macros were simplified thanks to the removal of the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;TOS&lt;/code&gt;. Similarly, we’ll also adjust the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;PUSHVAR&lt;/code&gt; macro (which I think I coded incorrectly anyways):&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt; .macro PUSHVAR var
+     addi sp, sp, -CELL  # move the DSP down by 1 cell
+-    sw s3, 0(sp)        # store the value in the TOS to the top of the DSP
+     li t0, \var         # load variable into temporary
+-    lw s3, 0(t0)        # load variable address value into TOS
++    sw t0, 0(sp)        # store the variable value to the top of the DSP
+ .endm
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Here we’re not loading the value pointed at by the variable anymore. Instead we’re just storing the memory address of the variable to the top of the stack. I guess we can then use &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;@&lt;/code&gt; to fetch the actual contents of those memory addresses.&lt;/p&gt;
+
+&lt;h3 id=&quot;fixing-primitives&quot;&gt;Fixing primitives&lt;/h3&gt;
+
+&lt;p&gt;That conveniently leads us to our next changes in &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;src/08-forth-primitives.s&lt;/code&gt;, where we’ll start by modifying &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;FETCH&lt;/code&gt;:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt; defcode &quot;@&quot;, 0x0102b5e5, FETCH, NULL
+-    lw s3, 0(s3)        # load address value from TOS (addr) into TOS (x)
++    lw t0, 0(sp)        # load the top of stack into temporary
++    lw t0, 0(t0)        # load the value from the temporary (addr)
++    sw t0, 0(sp)        # store the value back the top of stack (x)
+     NEXT
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Yikes! We’ve got way more instructions for this, because now we need to load the value in the stack pointer, get the address it points to, then store that back into the stack pointer. Slightly more complicated than simply loading from &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;TOS&lt;/code&gt; into &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;TOS&lt;/code&gt;.&lt;/p&gt;
+
+&lt;p&gt;We can test that it works in the terminal with:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;latest @&amp;lt;Enter&amp;gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Now if everything worked well, we should have the memory address of &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;word_SEMI&lt;/code&gt; stored as the first entry in the data stack. Let’s check with &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;GDB&lt;/code&gt;:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;(gdb) i r sp
+sp             0x20004ffc	0x20004ffc
+(gdb) x/xw 0x20004ffc
+0x20004ffc:	0x080004d8
+(gdb) x/xw 0x080004d8
+0x80004d8 &amp;lt;word_SEMI&amp;gt;:	0x080004cc
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;&lt;strong&gt;Great!&lt;/strong&gt;&lt;/p&gt;
+
+&lt;p&gt;Next we’ll modify &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;STORE&lt;/code&gt; by loading the top two stack entries into temporaries, and then storing one into the other:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt; defcode &quot;!&quot;, 0x0102b5c6, STORE, FETCH
+     lw t0, 0(sp)        # load the DSP value (x) into temporary
+-    sw t0, 0(s3)        # store temporary into address stored in TOS (addr)
+-    lw s3, CELL(sp)     # load second value in DSP to TOS
++    lw t1, CELL(sp)     # load the DSP value (addr) into temporary
++    sw t0, 0(t1)        # store x into addr
+     addi sp, sp, 2*CELL # move DSP up by 2 cells
+     NEXT
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;The instruction count remains the same, but we’re not messing with &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;TOS&lt;/code&gt; anymore. Let’s test it out by trying to store the value of &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;latest&lt;/code&gt; to the writeable memory address &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;HERE&lt;/code&gt;, which is set to &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0x20000000&lt;/code&gt; (the start of the dictionary) on initialization. In the terminal we’ll type:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;here @ latest @ !&amp;lt;Enter&amp;gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Still following along? We just put &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;HERE&lt;/code&gt; in the stack, and then put &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;LATEST&lt;/code&gt; in the stack. Then we called &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;STORE&lt;/code&gt; which technically should &lt;em&gt;store&lt;/em&gt; &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0x080004d8&lt;/code&gt; into &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0x20000000&lt;/code&gt;. Let’s check with &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;GDB&lt;/code&gt;:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;(gdb) x/xw 0x20000000
+0x20000000:	0x080004d8
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;&lt;strong&gt;Sweet!&lt;/strong&gt;&lt;/p&gt;
+
+&lt;p&gt;Actually, at this point I’m starting to feel amazing. So far everything is working as I hoped. Let’s continue with &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ZEQU&lt;/code&gt;, which was a buggy non-sensical little 1-liner:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt; defcode &quot;0=&quot;, 0x025970b2, ZEQU, RSPFETCH
+-    seqz s3, s3         # store 1 in TOS if TOS is equal to 0, otherwise store 0
++    lw t0, 0(sp)        # load the DSP value (x) into temporary
++    snez t0, t0         # store 0 in temporary if it's equal to 0, otherwise store 1
++    addi t0, t0, -1     # store -1 in temporary if it's 0, otherwise store 0
++    sw t0, 0(sp)        # store value back into the top of the stack
+     NEXT
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;First I realized the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ZEQU&lt;/code&gt; should actually store &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;-1&lt;/code&gt; not &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;1&lt;/code&gt;. In this case I’m using the exact same approach as &lt;em&gt;sectorforth&lt;/em&gt; but with RISC-V instructions to “set if not equal” and then to decrement the value by 1. Let’s test it by storing the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;STATE&lt;/code&gt; (should be &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0&lt;/code&gt;) in the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;DSP&lt;/code&gt;, and then calling &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0=&lt;/code&gt; in the terminal with:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;state @ 0=&amp;lt;Enter&amp;gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;In &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;GDB&lt;/code&gt; we should find &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;-1&lt;/code&gt; as the top stack value:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;(gdb) i r sp
+sp             0x20004ffc	0x20004ffc
+(gdb) x/dw 0x20004ffc
+0x20004ffc:	-1
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Now let’s call &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0=&lt;/code&gt; again in the terminal:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;0=&amp;lt;Enter&amp;gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;And let’s inspect it again in &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;GDB&lt;/code&gt;:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;(gdb) i r sp
+sp             0x20004ffc	0x20004ffc
+(gdb) x/dw 0x20004ffc
+0x20004ffc:	0
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;&lt;strong&gt;Awesome!&lt;/strong&gt;&lt;/p&gt;
+
+&lt;p&gt;The last primitives to fix are &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ADD&lt;/code&gt; and &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;NAND&lt;/code&gt; which should be fairly similar as they have the same stack effects. Let’s start with &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ADD&lt;/code&gt;:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt; defcode &quot;+&quot;, 0x0102b5d0, ADD, ZEQU
+     POP t0              # pop value into temporary
+-    add s3, s3, t0      # add values and store in TOS
++    lw t1, 0(sp)        # load DSP value (x2) into temporary
++    add t0, t0, t1      # add the two values
++    sw t0, 0(sp)        # store the value into the top of the stack
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Again, without the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;TOS&lt;/code&gt; it’s a bit more complex. Here we’re still popping the top value from the stack into &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;t0&lt;/code&gt;, but we’re also loading the next top value into &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;t1&lt;/code&gt; (note: the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;POP t0&lt;/code&gt; moves the stack pointer, so we’re still loading from offset &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0&lt;/code&gt;). Afterwards we’re adding the two registers and then storing the result back into the top of the stack.&lt;/p&gt;
+
+&lt;p&gt;Now let’s look at the bitwise &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;NAND&lt;/code&gt;:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt; defcode &quot;nand&quot;, 0x049b0c66, NAND, ADD
+     POP t0              # pop value into temporary
+-    and s3, s3, t0      # store bitwise AND of temporary and TOS into TOS
+-    not s3, s3          # store bitwise NOT of TOS into TOS
++    lw t1, 0(sp)        # load DSP value (x2) into temporary
++    and t0, t0, t1      # perform bitwise AND of the two values
++    not t0, t0          # perform bitwise NOT of the value
++    sw t0, 0(sp)        # store the value into the top of the stack
+     NEXT
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;It’s almost identical to &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ADD&lt;/code&gt; except we’re performing bitwise &lt;em&gt;AND&lt;/em&gt; and &lt;em&gt;NOT&lt;/em&gt; instead of &lt;em&gt;ADD&lt;/em&gt;.&lt;/p&gt;
+
+&lt;p&gt;That completes our changes to the &lt;em&gt;forth primitives&lt;/em&gt;. Let’s test &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ADD&lt;/code&gt; and &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;NAND&lt;/code&gt;. We’ll start by trying to add the value of &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;LATEST&lt;/code&gt; to the value of &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;LATEST&lt;/code&gt;. In the terminal we’ll type:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;latest @ latest @ +&amp;lt;Enter&amp;gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Now in &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;GDB&lt;/code&gt;, let’s get the address of &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;LATEST&lt;/code&gt; (aka &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;word_SEMI&lt;/code&gt;), right now it gives us &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0x80004e8&lt;/code&gt; (because we added some new instructions previously). Multiplying it by 2 should give us &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0x100009D0&lt;/code&gt; stored at the top of the stack.&lt;/p&gt;
+
+&lt;p&gt;Let’s check:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;(gdb) x/xw word_SEMI
+0x80004e8 &amp;lt;word_SEMI&amp;gt;:	0x080004dc
+(gdb) i r sp
+sp             0x20004ffc	0x20004ffc
+(gdb) x/xw 0x20004ffc
+0x20004ffc:	0x100009d0
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;&lt;strong&gt;Perfect!&lt;/strong&gt;&lt;/p&gt;
+
+&lt;p&gt;Next we’ll see if &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;NAND&lt;/code&gt; works as expected by storing &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;STATE&lt;/code&gt; in the top of the stack. In the terminal we’ll type:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;state @ state @ nand&amp;lt;Enter&amp;gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;And in &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;GBD&lt;/code&gt;, since we know that &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;STATE&lt;/code&gt; is set to &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0&lt;/code&gt; when we’re in &lt;em&gt;execute&lt;/em&gt; mode, performing a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;NAND&lt;/code&gt; of &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0&lt;/code&gt; and &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0&lt;/code&gt; should give us &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;-1&lt;/code&gt; (remember this is bitwise, which flips all the 0 bits to 1, giving us &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0xFFFFFFFF&lt;/code&gt; or &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;-1&lt;/code&gt;):&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;(gdb) i r sp
+sp             0x20004ffc	0x20004ffc
+(gdb) x/dw 0x20004ffc
+0x20004ffc:	-1
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;&lt;strong&gt;Yesss!!!&lt;/strong&gt;&lt;/p&gt;
+
+&lt;p&gt;That’s all for our &lt;em&gt;forth primitives&lt;/em&gt;. The one final change is to remove the initialization of &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;s3&lt;/code&gt; in &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;src/06-initialization.s&lt;/code&gt;:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;-    mv s3, zero                 # initialize TOS register
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;h3 id=&quot;closing-thoughts&quot;&gt;Closing thoughts&lt;/h3&gt;
+
+&lt;p&gt;This was a rather long session of writing and testing and editing code, but we did it! Not only did I fix some bugs in some of the primitives, but I also greatly simplified the data stack by getting rid of the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;TOS&lt;/code&gt;.&lt;/p&gt;
+
+&lt;p&gt;In the next session, I’ll get the compiler working so I can finally add words to the user dictionary starting at address &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;0x20000000&lt;/code&gt; (on the longan nano).&lt;/p&gt;
+</description>
+        <pubDate>Wed, 04 Jan 2023 00:00:00 +0900</pubDate>
+        <link>https://fiveforths.a1w.ca//devlog-32-fixing-bugs</link>
+        <link href="https://fiveforths.a1w.ca/devlog-32-fixing-bugs"/>
+        <guid isPermaLink="true">https://fiveforths.a1w.ca/devlog-32-fixing-bugs</guid>
+      </item>
+    
+      <item>
+        <title>Devlog 31 Interpreting Words</title>
+        <description>&lt;h1 id=&quot;january-04-2023&quot;&gt;January 04, 2023&lt;/h1&gt;
+
+&lt;ol&gt;
+  &lt;li&gt;&lt;a href=&quot;#log-31&quot;&gt;Log 31&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;#reviewing-token&quot;&gt;Reviewing token&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;#interpreting-words&quot;&gt;Interpreting words&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;#closing-thoughts&quot;&gt;Closing thoughts&lt;/a&gt;&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;h3 id=&quot;log-31&quot;&gt;Log 31&lt;/h3&gt;
+
+&lt;p&gt;In this session I’m going to review the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;token&lt;/code&gt; function from &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;src/05-internal-functions.s&lt;/code&gt; before reviewing the interpreter in file &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;src/09-interpreter.s&lt;/code&gt;.&lt;/p&gt;
+
+&lt;h3 id=&quot;reviewing-token&quot;&gt;Reviewing token&lt;/h3&gt;
+
+&lt;p&gt;In my &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;token&lt;/code&gt; function, I read characters backward from &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;TOIN&lt;/code&gt; to the start of the word. This makes no sense because it’ll then be impossible to read the &lt;em&gt;next&lt;/em&gt; word. I’ll need to make some adjustments for the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;TOIN&lt;/code&gt; variable location, but let’s start by fixing &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;token&lt;/code&gt;.&lt;/p&gt;
+
+&lt;p&gt;First, since we’re not comparing &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;TOIN&lt;/code&gt; with the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;TIB&lt;/code&gt; address anymore, we can remove that guard:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;-    blt a1, a0, token_done      # compare the address of TOIN with the address of TIB
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Next, we want to increment &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;TOIN&lt;/code&gt; by 1 for each character found, instead of decrementing:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;-    addi a1, a1, -1             # move TOIN pointer down
++    addi a0, a0, 1              # move buffer pointer up
++    beqz t0, token_zero         # compare char with 0
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;I moved the buffer address to &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;W&lt;/code&gt; instead of &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;X&lt;/code&gt;. Here I also added a new branch address called &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;token_zero&lt;/code&gt;. The &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;TIB&lt;/code&gt; will always be filled with zeroes first, so we want to keep scanning the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;TIB&lt;/code&gt; until we find a zero. That’s a character which can’t be input via the UART/serial terminal, and doesn’t belong in the terminal input buffer (except when we initialize it).&lt;/p&gt;
+
+&lt;p&gt;Next, when we find a &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;space&lt;/code&gt; character, we want to ignore it because we know we’re done scanning our token:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;+    addi a0, a0, -1             # move buffer pointer down to ignore the space character
++    sub a0, a0, t2              # store the start address in W
++    j token_done
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;We’ll use that opportunity to store the new &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;TOIN&lt;/code&gt; address in the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;W&lt;/code&gt; (&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;a0&lt;/code&gt;) working register.&lt;/p&gt;
+
+&lt;p&gt;Our &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;token_zero&lt;/code&gt; label looks like this:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;+token_zero:
++    addi a0, a0, -1             # move buffer pointer down to ignore the 0
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;It does this because we also want to ignore the zero if we find it (by moving &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;TOIN&lt;/code&gt; back by 1). This will automatically fall into &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;token_done&lt;/code&gt; afterwards, whose only job is to store the size of the token in the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;X&lt;/code&gt; (&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;a1&lt;/code&gt;) working register, and then return from the function:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;token_done:
+    mv a1, t2                   # store the size in X
+    ret
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;That’s all for adjusting the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;token&lt;/code&gt; function. Now we can jump back to the interpreter and fix that.&lt;/p&gt;
+
+&lt;h3 id=&quot;interpreting-words&quot;&gt;Interpreting words&lt;/h3&gt;
+
+&lt;p&gt;The first change I want to make is ensure our &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;.loop&lt;/code&gt; function jumps to &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;process_token&lt;/code&gt; instead of &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ok&lt;/code&gt;. We obviously don’t want to print &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ok&lt;/code&gt; after scanning only &lt;em&gt;one&lt;/em&gt; word in the buffer:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;-.loop: .word ok             # indirect jump to interpreter after executing a word
++.loop: .word process_token  # indirect jump to interpreter after executing a word
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Next, in our &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;interpreter_tib&lt;/code&gt; function, we don’t actually want to start processing the token just yet, first we need to replace the &lt;em&gt;newline&lt;/em&gt; with a &lt;em&gt;space&lt;/em&gt;, so let’s jump to a different label:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;-    beq a0, t0, process_token                   # process the token if it matches
++    beq a0, t0, replace_newline                 # process the token if it matches
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Then, where we convert the &lt;em&gt;newline&lt;/em&gt; to a &lt;em&gt;space&lt;/em&gt;, we’ll change the label name as well:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;-process_token:
++replace_newline:
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Now things start to make a bit more sense, let’s re-add the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;process_token&lt;/code&gt; label a bit lower, where we actually “process” the “token” right before calling the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;token&lt;/code&gt; function. This is where we’ll loop to after executing a word:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;+process_token:
+     # process the token
+-    mv a0, t2               # load the TIB address in the W working register
++    li t3, TOIN             # load TOIN variable into unused temporary register
++    lw a0, 0(t3)            # load TOIN address value into temporary
+     call token              # read the token
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;We made a few changes here, the first was removing the naive approach of just copying the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;TIB&lt;/code&gt; address into &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;W&lt;/code&gt;.&lt;/p&gt;
+
+&lt;p&gt;This can probably be optimized by renaming some registers, but for now we want to reload &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;TOIN&lt;/code&gt; into a temporary, and then load the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;TOIN&lt;/code&gt; address into &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;W&lt;/code&gt;, before calling &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;token&lt;/code&gt;. This ensures it’ll get the correct buffer address to start with.&lt;/p&gt;
+
+&lt;p&gt;Once the call returns, we won’t need to reload &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;TOIN&lt;/code&gt; because we’ll already have it in &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;W&lt;/code&gt; (&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;a0&lt;/code&gt;), as well as the token’s size in &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;X&lt;/code&gt; (&lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;a1&lt;/code&gt;). We can just add them together to get the new &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;TOIN&lt;/code&gt; address:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;-    lw t0, 0(t3)            # load TOIN address value into temporary
+-    add t0, t0, a1          # add the size of the token to TOIN
++    add t0, a0, a1          # add the size of the token to TOIN
+     sw t0, 0(t3)            # move TOIN to process the next word in the TIB
+
+     # bounds checks on token size
+     beqz a1, ok             # ok if token size is 0
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;This seems to work well. In the event where our token size is 0, because the last character was a space or a 0, then we’re done processing tokens and the bounds check will jump to &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;ok&lt;/code&gt;, which re-initializes the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;TIB&lt;/code&gt; before looping back to the interpreter. Note the stack is &lt;em&gt;not&lt;/em&gt; reset, so our &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;sp&lt;/code&gt; stack pointer will remain and the words we entered in the terminal will have executed and their results will be stored in (or removed from) the stack (assuming they actually modify the stack).&lt;/p&gt;
+
+&lt;p&gt;Example:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;(gdb) i r sp
+sp             0x20004ffc	0x20004ffc
+(gdb) x/xw 0x20004ffc
+0x20004ffc:	0x00000000
+(gdb) c
+Continuing.
+
+Breakpoint 1, interpreter_start () at src/09-interpreter.s:11
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Now in the terminal I type &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;latest&amp;lt;Enter&lt;/code&gt;:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;latest ok
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;And back in &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;GDB&lt;/code&gt;:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;(gdb) i r sp
+sp             0x20004ff8	0x20004ff8
+(gdb) x/xw 0x20004ff8
+0x20004ff8:	0x080004f8
+(gdb) x/xw 0x080004f8
+0x80004f8 &amp;lt;word_SEMI&amp;gt;:	0x080004ec
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Perfect! There’s the address of the latest word we defined: &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;SEMI&lt;/code&gt;.&lt;/p&gt;
+
+&lt;h3 id=&quot;closing-thoughts&quot;&gt;Closing thoughts&lt;/h3&gt;
+
+&lt;p&gt;I’m happy I can now execute multiple words from the terminal. The next step is to try and &lt;em&gt;compile&lt;/em&gt; words. I’ll also need to ensure we call &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;number&lt;/code&gt; so we can store numbers in the stack. I’ll try to focus on those two things in the next session, and see if I can find any bugs in the current implementation. Almost done!&lt;/p&gt;
+</description>
+        <pubDate>Wed, 04 Jan 2023 00:00:00 +0900</pubDate>
+        <link>https://fiveforths.a1w.ca//devlog-31-interpreting-words</link>
+        <link href="https://fiveforths.a1w.ca/devlog-31-interpreting-words"/>
+        <guid isPermaLink="true">https://fiveforths.a1w.ca/devlog-31-interpreting-words</guid>
+      </item>
+    
+      <item>
+        <title>Devlog 30 Cleanup</title>
+        <description>&lt;h1 id=&quot;january-02-2023&quot;&gt;January 02, 2023&lt;/h1&gt;
+
+&lt;ol&gt;
+  &lt;li&gt;&lt;a href=&quot;#log-30&quot;&gt;Log 30&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;#cleanup&quot;&gt;Cleanup&lt;/a&gt;&lt;/li&gt;
+  &lt;li&gt;&lt;a href=&quot;#closing-thoughts&quot;&gt;Closing thoughts&lt;/a&gt;&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;h3 id=&quot;log-30&quot;&gt;Log 30&lt;/h3&gt;
+
+&lt;p&gt;I can’t seem to find my way through &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;fiveforths.s&lt;/code&gt; anymore. The file has grown to over &lt;strong&gt;700 lines&lt;/strong&gt; and even with a good text editor I have trouble finding stuff. In this session I’ll split things into various files to simplify my life.&lt;/p&gt;
+
+&lt;h3 id=&quot;cleanup&quot;&gt;Cleanup&lt;/h3&gt;
+
+&lt;p&gt;Since &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;GNU Assembler&lt;/code&gt; has very primitive &lt;em&gt;include&lt;/em&gt; functionality, I’ll make sure to move the source files to the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;src/&lt;/code&gt; sub-directory, and each file will be prefixed with a number, to clearly indicate the correct loading order.&lt;/p&gt;
+
+&lt;p&gt;The first change is to include &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;src&lt;/code&gt; in the search path for the assembler, so we’ll modify the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;Makefile&lt;/code&gt; like this:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;-               $(AS) $(CFLAGS) -march=$(ARCH) -o $@ $&amp;lt;
++               $(AS) $(CFLAGS) -march=$(ARCH) -I src -o $@ $&amp;lt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Next, I modified &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;fiveforths.s&lt;/code&gt; by including each file in numerical order:&lt;/p&gt;
+
+&lt;div class=&quot;language-plaintext highlighter-rouge&quot;&gt;&lt;div class=&quot;highlight&quot;&gt;&lt;pre class=&quot;highlight&quot;&gt;&lt;code&gt;.include &quot;01-variables-constants.s&quot;
+.include &quot;02-macros.s&quot;
+.include &quot;03-interrupts.s&quot;
+
+# include board-specific functions
+.include &quot;gd32vf103.s&quot;
+
+.include &quot;04-io-helpers.s&quot;
+.include &quot;05-internal-functions.s&quot;
+.include &quot;06-initialization.s&quot;
+.include &quot;07-error-handling.s&quot;
+.include &quot;08-forth-primitives.s&quot;
+.include &quot;09-interpreter.s&quot;
+&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;
+
+&lt;p&gt;Finally, I simply moved the pieces of code into separate files. It seems like quite a big change, but the functionality remains exactly the same. Just type &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;make&lt;/code&gt; and it will rebuild everything as usual.&lt;/p&gt;
+
+&lt;h3 id=&quot;closing-thoughts&quot;&gt;Closing thoughts&lt;/h3&gt;
+
+&lt;p&gt;This change was purely aesthetic but I think it was really necessary to preserve my sanity. I’ll get back to fixing the &lt;code class=&quot;language-plaintext highlighter-rouge&quot;&gt;execute&lt;/code&gt; issue in the next session.&lt;/p&gt;
+</description>
+        <pubDate>Mon, 02 Jan 2023 00:00:00 +0900</pubDate>
+        <link>https://fiveforths.a1w.ca//devlog-30-cleanup</link>
+        <link href="https://fiveforths.a1w.ca/devlog-30-cleanup"/>
+        <guid isPermaLink="true">https://fiveforths.a1w.ca/devlog-30-cleanup</guid>
+      </item>
+    
+  </channel>
+</rss>

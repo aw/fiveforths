@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+  <meta name="generator" content="Jekyll">
+
+  <title>Devlog 17 Fixing Uart</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link href="/atom.xml" type="application/atom+xml" rel="alternate" title="ATOM Feed" />
+</head>
+
+<body>
+  <div id="wrapper">
+    <header>
+  <div>
+    <a href="/">
+    
+      <h1>FiveForths</h1>
+    </a>
+    <p style="text-align: center;">32-bit RISC-V Forth for microcontrollers</p>
+    <div class="header-links">
+      <a href="https://github.com/aw/fiveforths"><h2 class="header-link">Code</h2></a>
+<a href="/archive"><h2 class="header-link">Archive</h2></a>
+<a href="/atom.xml"><h2 class="header-link">RSS</h2></a>
+<a href="https://github.com/aw/fiveforths/archive/refs/heads/master.zip"><h2 class="header-link">Download</h2></a>
+    </div>
+  </div>
+</header>
+    <div class="container">
+      <section id="main_content">
+        <article>
+  <h2>Devlog 17 Fixing Uart</h2>
+  <h1 id="december-8-2022">December 8, 2022</h1>
+
+<ol>
+  <li><a href="#log-17">Log 17</a></li>
+  <li><a href="#fixing-uart">Fixing UART</a></li>
+  <li><a href="#closing-thoughts">Closing thoughts</a></li>
+</ol>
+
+<h2 id="log-17">Log 17</h2>
+
+<p>I made a mistake when configuring the <code class="language-plaintext highlighter-rouge">RX/TX</code> GPIO pins. This session’s focus is on fixing that.</p>
+
+<h3 id="fixing-uart">Fixing UART</h3>
+
+<p>When reviewing the datasheet for the Longan Nano’s MCU, I realized I made one mistake. The USART pins <code class="language-plaintext highlighter-rouge">RX/TX</code> are actually “alternate function” pins. This means I have some other bits in registers to set.</p>
+
+<p>The first part to fix is in <code class="language-plaintext highlighter-rouge">uart_init</code> where we set some bits to enable the RCU clocks in <code class="language-plaintext highlighter-rouge">RCU_APB2EN</code>, we also need to enable the alternate function clock:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>-    li t2, (1 &lt;&lt; 14) | (1 &lt;&lt; 2)             # set USART0EN (bit 14), PAEN (bit 2)
++    li t2, (1 &lt;&lt; 14) | (1 &lt;&lt; 2) | (1 &lt;&lt; 0)  # set USART0EN (bit 14), PAEN (bit 2), AFEN (bit 0)
+</code></pre></div></div>
+
+<p>Now if we compare the register with what we had before:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>(gdb) x/1tw 0x40021000+0x18
+0x40021018:	00000000000000000100000000000100
+(gdb) c
+Continuing.
+
+Breakpoint 2, gpio_done () at fiveforths.s:224
+224	    ret
+(gdb) x/1tw 0x40021000+0x18
+0x40021018:	00000000000000000100000000000101
+</code></pre></div></div>
+
+<p>There’s that extra 1 set in the least significant bit.</p>
+
+<p>Next, in <code class="language-plaintext highlighter-rouge">gpio_init</code> we need to configure the GPIO output as “AFIO”, so the <code class="language-plaintext highlighter-rouge">TX</code> pin should be set to <code class="language-plaintext highlighter-rouge">0b1011</code> (AFIO push-pull) instead of <code class="language-plaintext highlighter-rouge">0b0011</code> (GPIO push-pull):</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>-    or t1, t1, (1 &lt;&lt; 4) | (1 &lt;&lt; 5) | (0 &lt;&lt; 6) | (0 &lt;&lt; 7) # set the bits 4,5,6,7 (output push-pull, max speed 50MHz)
++    or t1, t1, (1 &lt;&lt; 4) | (1 &lt;&lt; 5) | (0 &lt;&lt; 6) | (1 &lt;&lt; 7) # set the bits 4,5,6,7 (afio push-pull, max speed 50MHz)
+</code></pre></div></div>
+
+<p>Let’s compare with the previous register value:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>(gdb) x/th 0x40010800+0x04
+0x40010804:	0100010000110100
+(gdb) c
+Continuing.
+
+Breakpoint 2, gpio_done () at fiveforths.s:224
+224	    ret
+(gdb) x/th 0x40010800+0x04
+0x40010804:	0100010010110100
+</code></pre></div></div>
+
+<p>Looking good! Next I think it’ll be a good idea to enable interrupts on the transmission and receive buffers. We’ll modify the <code class="language-plaintext highlighter-rouge">uart_init</code> to also set the RBNEIE (receive buffer), TCIE (transmission complete), TBEIE (transmission buffer) interrupt enable bits to 1:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>-    # enable receiver, transmitter, uart
+-    li t1, (1 &lt;&lt; 2) | (1 &lt;&lt; 3) | (1 &lt;&lt; 13)  # set REN (bit 2), TEN (bit 3), UEN (bit 13)
++    # enable receiver, transmitter, uart, interrupts
++    li t1, (1 &lt;&lt; 2) | (1 &lt;&lt; 3) | (1 &lt;&lt; 5) | (1 &lt;&lt; 6) | (1 &lt;&lt; 7) | (1 &lt;&lt; 13) # set REN, TEN, RBNEIE, TCIE, TBEIE, UEN bits to 1
+</code></pre></div></div>
+
+<p>And if we compare with the previous register values:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>(gdb) x/th 0x40013800+0x0C
+0x4001380c:	0010000000001100
+(gdb) c
+Continuing.
+
+Breakpoint 2, gpio_done () at fiveforths.s:229
+229	    ret
+(gdb) x/th 0x40013800+0x0C
+0x4001380c:	0010000011101100
+</code></pre></div></div>
+
+<p>The bits 5, 6, and 7 are now also set to 1.</p>
+
+<h3 id="closing-thoughts">Closing thoughts</h3>
+
+<p>I enabled interrupts for the USART because I feel like it might be better to handle communication through that, instead of having a busy loop, but I’m not sure yet. In the next session I’ll try to figure out which approach is better for this Forth use-case, and I’ll try to get a test routine going to actually <em>test</em> the USART.</p>
+
+  <div class="pagination">
+    
+      <a class="prev" href="/devlog-16-initializing-uart-pt3">&laquo; Devlog 16 Initializing Uart Pt3</a>
+    
+    
+      <a class="next" href="/devlog-18-testing-uart">Devlog 18 Testing Uart &raquo;</a>
+    
+  </div>
+</article>
+      </section>
+    </div>
+  </div>
+
+   <footer>
+  <span>Copyright (c) 2021~ <a href="https://a1w.ca">Alexander Williams</a> and licensed under the permissive open source <a href="https://opensource.org/licenses/MIT">MIT</a> license.
+  </span>
+</footer>
+
+</body>
+
+</html>

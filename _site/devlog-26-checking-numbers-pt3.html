@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+  <meta name="generator" content="Jekyll">
+
+  <title>Devlog 26 Checking Numbers Pt3</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link href="/atom.xml" type="application/atom+xml" rel="alternate" title="ATOM Feed" />
+</head>
+
+<body>
+  <div id="wrapper">
+    <header>
+  <div>
+    <a href="/">
+    
+      <h1>FiveForths</h1>
+    </a>
+    <p style="text-align: center;">32-bit RISC-V Forth for microcontrollers</p>
+    <div class="header-links">
+      <a href="https://github.com/aw/fiveforths"><h2 class="header-link">Code</h2></a>
+<a href="/archive"><h2 class="header-link">Archive</h2></a>
+<a href="/atom.xml"><h2 class="header-link">RSS</h2></a>
+<a href="https://github.com/aw/fiveforths/archive/refs/heads/master.zip"><h2 class="header-link">Download</h2></a>
+    </div>
+  </div>
+</header>
+    <div class="container">
+      <section id="main_content">
+        <article>
+  <h2>Devlog 26 Checking Numbers Pt3</h2>
+  <h1 id="december-29-2022">December 29, 2022</h1>
+
+<ol>
+  <li><a href="#log-26">Log 26</a></li>
+  <li><a href="#checking-numbers-pt3">Checking numbers pt3</a></li>
+  <li><a href="#interpreter-pt4">Interpreter pt4</a></li>
+  <li><a href="#closing-thoughts">Closing thoughts</a></li>
+</ol>
+
+<h3 id="log-26">Log 26</h3>
+
+<p>Never 2 without 3? Well in this case I just found a small bug, fixed it, and i’m back to the interpreter.</p>
+
+<h3 id="checking-numbers-pt3">Checking numbers pt3</h3>
+
+<p>The checking of the token size (max 10 digits) and integer size (max 32 bits) was quite useless actually. It turns out the CPU will convert any arbitrary long string into a proper 32-bit number. It will overflow and just keep counting to make it fit. For example, the number <code class="language-plaintext highlighter-rouge">4294967295</code> will end up as <code class="language-plaintext highlighter-rouge">0xffffffff</code>, and the number <code class="language-plaintext highlighter-rouge">4294967296</code> will wrap around to <code class="language-plaintext highlighter-rouge">0x0</code>. I kind of like this because it’s simple and moves the responsibility of keeping within the 32-bit limit to the end-user… to prevent <em>strange</em> results such as numbers wrapping around.</p>
+
+<p>In the future I may want to implement support for doubles or quads, but that’s not necessary for the moment, so I just removed all the checks for the token string length and integer size.</p>
+
+<p>So now, a signed token string such as “-2147483648” will convert perfectly to <code class="language-plaintext highlighter-rouge">-2147483648</code> (<code class="language-plaintext highlighter-rouge">0x80000000</code>) where as “-2147483649” will also convert perfectly to <code class="language-plaintext highlighter-rouge">2147483647</code> (<code class="language-plaintext highlighter-rouge">0x7fffffff</code>). As expected.</p>
+
+<h3 id="interpreter-pt4">Interpreter pt4</h3>
+
+<p>Now back to the <code class="language-plaintext highlighter-rouge">interpreter</code> as promised. In the <em>devlog 21</em> I wrote that I would focus on <em>adding</em> characters to the <code class="language-plaintext highlighter-rouge">TIB</code> this time. Let’s do that.</p>
+
+<p>First, in the <code class="language-plaintext highlighter-rouge">interpreter</code> loop, right after processing a <code class="language-plaintext highlighter-rouge">backspace</code>, I want to check for a <code class="language-plaintext highlighter-rouge">carriage return</code> (<code class="language-plaintext highlighter-rouge">\r</code> or <code class="language-plaintext highlighter-rouge">0x0D</code>). Clients sending characters over UART sometimes default to <code class="language-plaintext highlighter-rouge">\r\n</code>, sometimes to <code class="language-plaintext highlighter-rouge">\n</code>, and othertimes to <code class="language-plaintext highlighter-rouge">\r</code>. Our interpreter will act on <code class="language-plaintext highlighter-rouge">\n</code>, but we don’t want <code class="language-plaintext highlighter-rouge">\r</code> to be part of a token so we’ll do some little trickery for that:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    li t0, CHAR_CARRIAGE                        # load carriage return into temporary
+    beq a0, t0, process_carriage                # process the carriage return if it matches
+    j interpreter_tib
+
+</code></pre></div></div>
+
+<p>Here we jump to <code class="language-plaintext highlighter-rouge">process_carriage</code> if we detect a <code class="language-plaintext highlighter-rouge">\r</code> carriage return:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>process_carriage:
+    li a0, CHAR_NEWLINE     # convert a carriage return to a newline
+    j interpreter_tib       # jump to add the character to the TIB
+</code></pre></div></div>
+
+<p>And in that case we’ll simply replace the <code class="language-plaintext highlighter-rouge">\r</code> with a <code class="language-plaintext highlighter-rouge">\n</code>, before jumping to the <code class="language-plaintext highlighter-rouge">interpreter_tib</code> function, which is where we add the character to the <code class="language-plaintext highlighter-rouge">TIB</code>.</p>
+
+<p>We’ll load the <code class="language-plaintext highlighter-rouge">TIB_TOP</code> constant to a temporary register. This will allow us to track if/when the <em>TIB</em> is full. Since we’re not using interrupts or DMA or a circular buffer, it’s a good idea to track the status of the buffer (<code class="language-plaintext highlighter-rouge">TOIN</code>) to ensure it’s not full. If it’s full we’ll jump directly to an error handler, but later I’ll define a different error handler for this use-case:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>interpreter_tib:
+    # add the character to the TIB
+    li t4, TIB_TOP                              # load TIB_TOP memory address
+    bge a1, t4, error                           # error if the terminal input buffer is full # FIXME: handle this better
+</code></pre></div></div>
+
+<p>Next we’re going to add the character to the <code class="language-plaintext highlighter-rouge">TIB</code> and then increment the <code class="language-plaintext highlighter-rouge">TOIN</code> address value by 1:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    sb a0, 0(a1)                                # store the character from W register in the TIB
+    addi a1, a1, 1                              # increment TOIN value by 1
+</code></pre></div></div>
+
+<p>Then, we want to check if the character is a <code class="language-plaintext highlighter-rouge">newline</code> and if yes then we’ll jump to a procedure which processes it, otherwise jump back to the interpreter to continue processing characters:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    li t0, CHAR_NEWLINE                         # load newline into temporary
+    beq a0, t0, process_token                   # process the token if it matches
+
+    j interpreter                               # return to the interpreter if it's not a newline
+</code></pre></div></div>
+
+<p>The <code class="language-plaintext highlighter-rouge">process_token</code> function will first replace the stored <code class="language-plaintext highlighter-rouge">newline</code> with a <code class="language-plaintext highlighter-rouge">space</code>, because that’s our separator when processing a token:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>process_token:
+    li a0, CHAR_SPACE       # convert newline to a space
+    sb a0, -1(a1)           # replace previous newline character with space in W register
+</code></pre></div></div>
+
+<p>Notice we’re storing the <code class="language-plaintext highlighter-rouge">space</code> character at offset <code class="language-plaintext highlighter-rouge">-1</code> because we incremented <code class="language-plaintext highlighter-rouge">TOIN</code> previously.. the <code class="language-plaintext highlighter-rouge">space</code> is there to <em>replace</em> the previously stored <code class="language-plaintext highlighter-rouge">newline</code>.</p>
+
+<p>Next we’ll call the <code class="language-plaintext highlighter-rouge">token</code> function, which expects the load the buffer start address (<code class="language-plaintext highlighter-rouge">TIB</code>) in <code class="language-plaintext highlighter-rouge">W</code> (<code class="language-plaintext highlighter-rouge">a0</code>) and the buffer current address (<code class="language-plaintext highlighter-rouge">TOIN</code>) in the <code class="language-plaintext highlighter-rouge">X</code> (<code class="language-plaintext highlighter-rouge">a1</code>) working registers:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    # process the token
+    mv a0, t2               # load the TIB address in the W working register
+    call token              # read the token
+</code></pre></div></div>
+
+<p>Before we continue, let’s test this!</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>make -B
+/usr/bin/riscv64-linux-gnu-as -g -march=rv32imac  -o fiveforths.o fiveforths.s
+/usr/bin/riscv64-linux-gnu-ld -m elf32lriscv -T fiveforths.ld -o fiveforths.elf fiveforths.o
+/usr/bin/riscv64-linux-gnu-objcopy -O binary fiveforths.elf fiveforths.bin
+/usr/bin/riscv64-linux-gnu-objcopy -O ihex fiveforths.elf fiveforths.hex
+/usr/bin/riscv64-linux-gnu-objdump -D -S fiveforths.elf &gt; fiveforths.dump
+</code></pre></div></div>
+
+<p>Then we’ll load the debugger and upload the firmware:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>make debug
+/opt/riscv/bin/riscv64-unknown-elf-gdb -command=debug.gdb -q fiveforths.elf
+Reading symbols from fiveforths.elf...
+Info : accepting 'gdb' connection on tcp/3333
+0x00000000 in ?? ()
+Info : JTAG tap: riscv.cpu tap/device found: 0x1000563d (mfg: 0x31e (Andes Technology Corporation), part: 0x0005, ver: 0x1)
+Info : JTAG tap: auto0.tap tap/device found: 0x790007a3 (mfg: 0x3d1 (GigaDevice Semiconductor (Beijing) Inc), part: 0x9000, ver: 0x7)
+JTAG tap: riscv.cpu tap/device found: 0x1000563d (mfg: 0x31e (Andes Technology Corporation), part: 0x0005, ver: 0x1)
+JTAG tap: auto0.tap tap/device found: 0x790007a3 (mfg: 0x3d1 (GigaDevice Semiconductor (Beijing) Inc), part: 0x9000, ver: 0x7)
+(gdb) load
+`/home/rock64/Desktop/code/forth/fiveforths/fiveforths.elf' has changed; re-reading symbols.
+Info : JTAG tap: riscv.cpu tap/device found: 0x1000563d (mfg: 0x31e (Andes Technology Corporation), part: 0x0005, ver: 0x1)
+Info : JTAG tap: auto0.tap tap/device found: 0x790007a3 (mfg: 0x3d1 (GigaDevice Semiconductor (Beijing) Inc), part: 0x9000, ver: 0x7)
+Loading section .text, size 0x610 lma 0x8000000
+Info : JTAG tap: riscv.cpu tap/device found: 0x1000563d (mfg: 0x31e (Andes Technology Corporation), part: 0x0005, ver: 0x1)
+Info : JTAG tap: auto0.tap tap/device found: 0x790007a3 (mfg: 0x3d1 (GigaDevice Semiconductor (Beijing) Inc), part: 0x9000, ver: 0x7)
+Start address 0x080001b0, load size 1552
+Transfer rate: 565 bytes/sec, 1552 bytes/write.
+</code></pre></div></div>
+
+<p>Next let’s add a breakpoint where we enter the <code class="language-plaintext highlighter-rouge">process_token</code> function and <code class="language-plaintext highlighter-rouge">token_done</code> just so we can inspect some registers and values in memory:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>(gdb) break process_token
+Breakpoint 16 at 0x8000602: file fiveforths.s, line 613.
+(gdb) break token_done
+Breakpoint 17 at 0x80000fe: file fiveforths.s, line 237.
+</code></pre></div></div>
+
+<p>And then we’ll start the program:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>(gdb) continue
+Continuing.
+</code></pre></div></div>
+
+<p>In another terminal, I’ll start sending characters to the terminal, followed by a CRLF (<code class="language-plaintext highlighter-rouge">\r\n</code>), and then single-step through it in gdb. A breakpoint will be hit as soon as the CRLF is received. Let’s check the registers:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>Breakpoint 16, 0x08000602 in process_token () at fiveforths.s:613
+613	    checkchar CHAR_COMMENT_CPARENS, interpreter # check if character is a closing parens
+(gdb) i r a0 a1 pc
+a0             0xa	10
+a1             0x20004d05	536890629
+pc             0x8000602	0x8000602 &lt;process_token&gt;
+</code></pre></div></div>
+
+<p>Ok so the address of <code class="language-plaintext highlighter-rouge">a1</code> is <code class="language-plaintext highlighter-rouge">0x20004d05</code>, which means 5 characters were stored in the <code class="language-plaintext highlighter-rouge">TIB</code>. Let’s see:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>(gdb) x/5xb 0x20004d00
+0x20004d00:	0x74	0x65	0x73	0x74	0x0a
+</code></pre></div></div>
+
+<p>There’s our string: <code class="language-plaintext highlighter-rouge">test\n</code> .. but wait, didn’t I send a <code class="language-plaintext highlighter-rouge">\r\n</code> ? Ah yes, since the <code class="language-plaintext highlighter-rouge">process_carriage</code> converts the <code class="language-plaintext highlighter-rouge">\r</code> to <code class="language-plaintext highlighter-rouge">\n</code>, what we’re seeing is the first <code class="language-plaintext highlighter-rouge">\n</code> stored in the <code class="language-plaintext highlighter-rouge">TIB</code>. Let’s step through it and inspect again:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>(gdb) si
+0x08000606	613	    checkchar CHAR_COMMENT_CPARENS, interpreter # check if character is a closing parens
+(gdb) x/8xb 0x20004d00
+0x20004d00:	0x74	0x65	0x73	0x74	0x20	0x00	0x00	0x00
+</code></pre></div></div>
+
+<p>Awesome! The <code class="language-plaintext highlighter-rouge">0x0a</code> (<code class="language-plaintext highlighter-rouge">newline</code>) was replaced by <code class="language-plaintext highlighter-rouge">0x20</code> (<code class="language-plaintext highlighter-rouge">space</code>), as expected. Now let’s continue processing the token until the next breakpoint:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>(gdb) c
+Continuing.
+
+Breakpoint 17, token_done () at fiveforths.s:237
+237	    addi a0, a0, 1              # add 1 to W to account for TOIN offset pointer
+(gdb) si
+238	    mv a1, t2                   # store the size in X
+(gdb) i r a0 a1 pc
+a0             0x20004d01	536890625
+a1             0x20004cff	536890623
+pc             0x8000100	0x8000100 &lt;token_done+2&gt;
+</code></pre></div></div>
+
+<p>So here we can see a bug in <code class="language-plaintext highlighter-rouge">a0</code>. It looks like our <code class="language-plaintext highlighter-rouge">token_done</code> code was moving the token buffer start address by 1 but that’s actually wrong. The correct address should be <code class="language-plaintext highlighter-rouge">0x20004d00</code>. Let’s fix that and try again:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>(gdb) s
+239	    ret
+(gdb) i r a0 a1 pc
+a0             0x20004d00	536890624
+a1             0x4	4
+pc             0x8000100	0x8000100 &lt;token_done+2&gt;
+</code></pre></div></div>
+
+<p>Perfect! Now we have the correct start address in <code class="language-plaintext highlighter-rouge">a0</code> and the correct size <code class="language-plaintext highlighter-rouge">4</code> in <code class="language-plaintext highlighter-rouge">a1</code>.</p>
+
+<p>OK so back to the code now. We want to perform similar bounds checks as we did in <code class="language-plaintext highlighter-rouge">COLON</code>, mainly checking if the string length is <code class="language-plaintext highlighter-rouge">0</code> or greater than <code class="language-plaintext highlighter-rouge">32</code>:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    # bounds checks on token size
+    beqz a1, ok         # ok if token size is 0
+    li t0, 32           # load max token size  (2^5 = 32) in temporary
+    bgtu a1, t0, error  # error if token size is greater than 32
+</code></pre></div></div>
+
+<p>We can probably remove that bounds check from <code class="language-plaintext highlighter-rouge">DOCOL</code> now that we have it here, but let’s save that for the optimization stage.</p>
+
+<p>Next step is to hash the token before we can perform a dictionary lookup. Since we already have our values in <code class="language-plaintext highlighter-rouge">a0</code> and <code class="language-plaintext highlighter-rouge">a1</code>, we just need to call the hash function:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    # hash the token
+    call djb2_hash
+</code></pre></div></div>
+
+<h3 id="closing-thoughts">Closing thoughts</h3>
+
+<p>This was a long session with a few bug fixes, but I can actually see the goal line now! In the next session I’ll implement the lookup function to find the hashed word in the dictionary, and then it’s “just” a matter of executing or compiling the word.</p>
+
+  <div class="pagination">
+    
+      <a class="prev" href="/devlog-25-checking-numbers-pt2">&laquo; Devlog 25 Checking Numbers Pt2</a>
+    
+    
+      <a class="next" href="/devlog-27-lookup">Devlog 27 Lookup &raquo;</a>
+    
+  </div>
+</article>
+      </section>
+    </div>
+  </div>
+
+   <footer>
+  <span>Copyright (c) 2021~ <a href="https://a1w.ca">Alexander Williams</a> and licensed under the permissive open source <a href="https://opensource.org/licenses/MIT">MIT</a> license.
+  </span>
+</footer>
+
+</body>
+
+</html>

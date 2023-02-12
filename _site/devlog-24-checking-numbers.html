@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+  <meta name="generator" content="Jekyll">
+
+  <title>Devlog 24 Checking Numbers</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link href="/atom.xml" type="application/atom+xml" rel="alternate" title="ATOM Feed" />
+</head>
+
+<body>
+  <div id="wrapper">
+    <header>
+  <div>
+    <a href="/">
+    
+      <h1>FiveForths</h1>
+    </a>
+    <p style="text-align: center;">32-bit RISC-V Forth for microcontrollers</p>
+    <div class="header-links">
+      <a href="https://github.com/aw/fiveforths"><h2 class="header-link">Code</h2></a>
+<a href="/archive"><h2 class="header-link">Archive</h2></a>
+<a href="/atom.xml"><h2 class="header-link">RSS</h2></a>
+<a href="https://github.com/aw/fiveforths/archive/refs/heads/master.zip"><h2 class="header-link">Download</h2></a>
+    </div>
+  </div>
+</header>
+    <div class="container">
+      <section id="main_content">
+        <article>
+  <h2>Devlog 24 Checking Numbers</h2>
+  <h1 id="december-25-2022">December 25, 2022</h1>
+
+<ol>
+  <li><a href="#log-24">Log 24</a></li>
+  <li><a href="#checking-numbers">Checking numbers</a></li>
+  <li><a href="#closing-thoughts">Closing thoughts</a></li>
+</ol>
+
+<h3 id="log-24">Log 24</h3>
+
+<p>What better way to spend <em>Christmas Afternoon</em> than to write a cool function in <code class="language-plaintext highlighter-rouge">RISC-V Assembly</code>? (don’t answer that.)</p>
+
+<h3 id="checking-numbers">Checking numbers</h3>
+
+<p>One <em>feature</em> of Forth is its ability to check if a string token is actually a literal number, and then store it in memory as such.</p>
+
+<p>I read quite a bit about this and decided to write my own simple number routine just for this use case. It seems this simple <em>feature</em> was missing in <em>sectorforth</em> and <em>derzforth</em>, which is fine but I kind of feel like it’s quite important, and much better than doing something like:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>: dup sp@ @ ;
+: -1 dup dup nand dup dup nand nand ;
+: 0 -1 dup nand ;
+: 1 -1 dup + dup nand ;
+: 2 1 1 + ;
+... etc
+</code></pre></div></div>
+
+<p>What horror! My implementation doesn’t handle various <em>bases</em> like in <em>jonesforth</em>, but it’s a good start and can be used later in the interpreter’s main loop. The <code class="language-plaintext highlighter-rouge">number</code> function will accept 2 parameters, the <code class="language-plaintext highlighter-rouge">W</code> working register holds the start address of the token buffer, and the <code class="language-plaintext highlighter-rouge">X</code> working register holds the length (in bytes) of the token. The function then returns the signed integer in <code class="language-plaintext highlighter-rouge">W</code> and a flag in <code class="language-plaintext highlighter-rouge">X</code>. The flag will either be <code class="language-plaintext highlighter-rouge">1</code> for an <code class="language-plaintext highlighter-rouge">OK</code> result, or <code class="language-plaintext highlighter-rouge">0</code> for an <code class="language-plaintext highlighter-rouge">ERROR</code> result (ex: if the token is not a number).</p>
+
+<p>To start, I want numbers to be a maximum of 29 bits, which is about 9 ascii characters. Let’s start the <code class="language-plaintext highlighter-rouge">number</code> function:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>number:
+    li t1, 9                    # initialize temporary to 9: log10(2^29) = 8 + 1 = max 9 characters
+    bgtu a1, t1, number_error   # if token is more than 9 characters, it's too long to be an integer
+</code></pre></div></div>
+
+<p>The reason is I actually want to store a number with the 3 first flag bits. I’ll use the currently unused <em>user-defined</em> flag and set it to <code class="language-plaintext highlighter-rouge">1</code> if the value is a number, or <code class="language-plaintext highlighter-rouge">0</code> otherwise (the current default). This will make it <em>super easy</em> to identify a number in memory as opposed to a word’s memory address. For now, that means we’ll limit the actual size of a number to 29 bits instead of 32. We want to quickly exit the loop if the token is too long, so we add a guard right at the start of the function.</p>
+
+<p>Next, we want to initialize a few temporaries to some important values that we’ll use throughout our number conversion loop:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    mv t0, zero                 # initialize temporary to 0: holds the final integer
+    li t3, CHAR_MINUS           # initialize temporary to minus character '-'
+    mv t4, zero                 # initialize temporary to 0: sign flag of integer
+    li t5, 10                   # initialize temporary to 10: multiplier used to convert the number
+</code></pre></div></div>
+
+<p>Next, we want to check if the first character in the token is a <em>minus</em> sign (<code class="language-plaintext highlighter-rouge">0x2D</code>). This tells us the number will be negative, so let’s keep track of that if it is negative, or jump to our digit checking loop if it’s positive:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    lbu t2, 0(a0)               # load first character from W working register
+    bne t2, t3, number_digit    # jump to number digit loop if the first character is not a minus sign
+    # first character is a minus sign, so the number will be negative
+    li t4, 1                    # number is negative, store a 1 flag in temporary
+    addi a0, a0, 1              # increment buffer address by 1 character
+    addi a1, a1, -1             # decrease buffer size by 1
+</code></pre></div></div>
+
+<p>Now we enter our digit checking loop, which performs a few validations on the character we’ve loaded. The first thing to do in the loop is exit the loop if the buffer is 0:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>number_digit:
+    beqz a1, number_done        # if the size of the buffer is 0 then we're done
+</code></pre></div></div>
+
+<p>Next, we know the hex value of the <code class="language-plaintext highlighter-rouge">0</code> digit is <code class="language-plaintext highlighter-rouge">0x30</code> so we’ll subtract that from the loaded character and then check the result. We want it to be <code class="language-plaintext highlighter-rouge">between 0 and 9</code>, so subtracting <code class="language-plaintext highlighter-rouge">0x30</code> will give us an actual number between 0 and 9, or something else:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    lbu t2, 0(a0)               # load next character into temporary
+    addi t2, t2, -0x30          # subtract 0x30 from the character
+    bltz t2, number_error       # check if character is lower than 0, if yes then error
+    bgtu t2, t1, number_error   # check if character is greater than 9, if yes then error
+</code></pre></div></div>
+
+<p>See there, we load the character, subtract <code class="language-plaintext highlighter-rouge">0x30</code>, and then check if it’s less than 0, or more than 9. In both cases it’s an error and we jump to the <code class="language-plaintext highlighter-rouge">number_error</code> handler. Otherwise we’ve got a valid number and we can continue:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    mul t0, t0, t5              # multiply previous number by 10 (base 10)
+    add t0, t0, t2              # add previous number to current digit
+</code></pre></div></div>
+
+<p>Here we’re multiplying the previous value by 10, because we’re using base 10 numbers and we want to essentially add a zero to the right of that digit. Then we add the loaded digit to that. Example: If we have ascii characters “12”, then it’ll become decimal <code class="language-plaintext highlighter-rouge">1</code>, then <code class="language-plaintext highlighter-rouge">10</code> (after multiplying by 10), then <code class="language-plaintext highlighter-rouge">12</code> (after adding 2). Easy!</p>
+
+<p>Next we’re simply moving the pointer for the token buffer and decreasing the buffer size, before looping again:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    addi a0, a0, 1              # increment buffer address by 1 character
+    addi a1, a1, -1             # decrease buffer size by 1
+    j number_digit              # loop to check the next character
+</code></pre></div></div>
+
+<p>Now let’s assume we had an error, example the token was “2abc”, then we’ll end up here:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>number_error:
+    li a1, 0                    # number is too large or not an integer, return 0
+    ret
+</code></pre></div></div>
+
+<p>All it does is return 0 (or false) indicating an error.</p>
+
+<p>If it wasn’t an error, then we’ll end up here:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>number_done:
+    beqz t4, number_store       # don't negate the number if it's positive
+    neg t0, t0                  # negate the number using two's complement
+</code></pre></div></div>
+
+<p>This does two things, first it checks if our number was positive or negative, which we set early in the <code class="language-plaintext highlighter-rouge">number</code> function. If it is negative, then it uses two’s complement to negate the number. Otherwise it jumps to here:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>number_store:
+    li t1, (2^29)-1             # largest acceptable number size: 29 bits
+    bgt t0, t1, number_error    # check if the signed number is larger than 29 bits
+    mv a0, t0                   # copy final number to W working register
+    li a1, 1                    # number is an integer, return 1
+    ret
+</code></pre></div></div>
+
+<p>That’s the final part of the function. It first loads the largest value of a 29 bit number, then performs a signed compare with the final number. If it doesn’t fit, then we return an error. Otherwise we copy the number to the <code class="language-plaintext highlighter-rouge">W</code> register and return <code class="language-plaintext highlighter-rouge">1</code> in the <code class="language-plaintext highlighter-rouge">X</code> register.</p>
+
+<h3 id="closing-thoughts">Closing thoughts</h3>
+
+<p>This was surprisingly fun and easy to write, and I’m actually surprised that it works as expected (I think?). In the next session, I’ll focus on adding that to the interpreter’s main loop and use it to validate tokens and store them correctly in memory.</p>
+
+  <div class="pagination">
+    
+      <a class="prev" href="/devlog-23-interpreter-pt3">&laquo; Devlog 23 Interpreter Pt3</a>
+    
+    
+      <a class="next" href="/devlog-25-checking-numbers-pt2">Devlog 25 Checking Numbers Pt2 &raquo;</a>
+    
+  </div>
+</article>
+      </section>
+    </div>
+  </div>
+
+   <footer>
+  <span>Copyright (c) 2021~ <a href="https://a1w.ca">Alexander Williams</a> and licensed under the permissive open source <a href="https://opensource.org/licenses/MIT">MIT</a> license.
+  </span>
+</footer>
+
+</body>
+
+</html>

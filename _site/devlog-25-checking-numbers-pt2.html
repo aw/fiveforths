@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+  <meta name="generator" content="Jekyll">
+
+  <title>Devlog 25 Checking Numbers Pt2</title>
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+
+  <link rel="stylesheet" href="/css/main.css">
+  
+  <link href="/atom.xml" type="application/atom+xml" rel="alternate" title="ATOM Feed" />
+</head>
+
+<body>
+  <div id="wrapper">
+    <header>
+  <div>
+    <a href="/">
+    
+      <h1>FiveForths</h1>
+    </a>
+    <p style="text-align: center;">32-bit RISC-V Forth for microcontrollers</p>
+    <div class="header-links">
+      <a href="https://github.com/aw/fiveforths"><h2 class="header-link">Code</h2></a>
+<a href="/archive"><h2 class="header-link">Archive</h2></a>
+<a href="/atom.xml"><h2 class="header-link">RSS</h2></a>
+<a href="https://github.com/aw/fiveforths/archive/refs/heads/master.zip"><h2 class="header-link">Download</h2></a>
+    </div>
+  </div>
+</header>
+    <div class="container">
+      <section id="main_content">
+        <article>
+  <h2>Devlog 25 Checking Numbers Pt2</h2>
+  <h1 id="december-25-2022">December 25, 2022</h1>
+
+<ol>
+  <li><a href="#log-25">Log 25</a></li>
+  <li><a href="#checking-numbers-pt2">Checking numbers pt2</a></li>
+  <li><a href="#closing-thoughts">Closing thoughts</a></li>
+</ol>
+
+<h3 id="log-25">Log 25</h3>
+
+<p>After running some proper tests on my <code class="language-plaintext highlighter-rouge">numbers</code> function, I realized it’s completely flawed in more than a few ways. In this session I plan on fixing those issues.</p>
+
+<h3 id="checking-numbers-pt2">Checking numbers pt2</h3>
+
+<p>Previously, I planned on only storing 29-bit numbers and reserving 3 bits for flags. The idea was to allow me to store a number as if it were a word by simply setting a 1-bit flag. However cool that may sound, in theory it wouldn’t work because a number is a literal value. It doesn’t make sense to treat it as a word - because it’s not - and why lose 3 bits just for that?</p>
+
+<p>Another issue is the minus sign was being counted as a character, so the actual number’s length could not be more than 8 digits if it were negative.</p>
+
+<p>Next, there was an issue when negating the 29-bit number, because <code class="language-plaintext highlighter-rouge">neg</code> works on the 32-bit word, not 29-bit, so the converted negative number was actually not always correct.</p>
+
+<p>Finally, I somehow forgot to set the 3-bit flag values (<code class="language-plaintext highlighter-rouge">001</code>) in the number.. but anyways we’ll get rid of that by converting to a 32-bit number and leaving it at that.</p>
+
+<p>The first change we’ll make is to extend the maximum token length:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>-    li t1, 9                    # initialize temporary to 9: log10(2^29) = 8 + 1 = max 9 characters
+-    bgtu a1, t1, number_error   # if token is more than 9 characters, it's too long to be an integer
++    li t1, 10                   # initialize temporary to 10: floor(log10(2^32)) = 9 + 1 = max 10 characters
++    addi t2, t1, 1              # initialize temporary to 11: max characters + 1 for minus sign
++    bgtu a1, t2, number_error   # if token is more than 11 characters, it's too long to be an integer
+</code></pre></div></div>
+
+<p>Here we know that a 32-bit number can only have a maximum of 10 digits, so we store that in <code class="language-plaintext highlighter-rouge">t1</code>, but we’ll need one more for the optional minus sign, so we store that in <code class="language-plaintext highlighter-rouge">t2</code>. Then we change our comparison to check if the token is more than 11 characters. This seems a bit roundabout, but we’ll re-use the 10 value later as our multiplier, and our <em>greater than</em> bounds check.</p>
+
+<p>Speaking of bounds check, we were previously using 2 instructions for that: <code class="language-plaintext highlighter-rouge">bltz</code> to check if a digit is less than <code class="language-plaintext highlighter-rouge">0</code>, and <code class="language-plaintext highlighter-rouge">bgtu</code> to check if it’s greater than <code class="language-plaintext highlighter-rouge">9</code>. I replaced them with a single instruction that uses <code class="language-plaintext highlighter-rouge">bgeu</code> to perform both checks (it’s an unsigned branch check, which I also used in <code class="language-plaintext highlighter-rouge">token</code>):</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>-    bltz t2, number_error       # check if character is lower than 0, if yes then error
+-    bgtu t2, t1, number_error   # check if character is greater than 9, if yes then error
++    bgeu t2, t1, number_error   # check if character is &lt; 0 or &gt;= 10
+</code></pre></div></div>
+
+<p>Nice!</p>
+
+<p>The final change was where we performed a bounds check on the number, the previous code was totally not what I expected, so I fixed it like this:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>-    li t1, (2^29)-1             # largest acceptable number size: 29 bits
++    li t1, 0xFFFFFFFF           # load the largest acceptable number size: 32 bits
+</code></pre></div></div>
+
+<p>This is much simpler and easier to understand. That hex value is <code class="language-plaintext highlighter-rouge">2^32 - 1</code>.</p>
+
+<h3 id="closing-thoughts">Closing thoughts</h3>
+
+<p>I guess with this new method of checking numbers, I’ll be forced to use the traditional <strong>Forth</strong> approach of enclosing a literal with <code class="language-plaintext highlighter-rouge">[</code> and <code class="language-plaintext highlighter-rouge">]</code>. I didn’t really want to add those primitives in assembly, but as I mentioned in <em>devlog 24</em>, I feel that handling numbers correctly - natively - is quite important as opposed to writing some weird Forth code to do that.</p>
+
+<p>I’m looking forward to getting back to the interpreter implementation in the next session, assuming I don’t discover more bugs in my <code class="language-plaintext highlighter-rouge">numbers</code> function.</p>
+
+  <div class="pagination">
+    
+      <a class="prev" href="/devlog-24-checking-numbers">&laquo; Devlog 24 Checking Numbers</a>
+    
+    
+      <a class="next" href="/devlog-26-checking-numbers-pt3">Devlog 26 Checking Numbers Pt3 &raquo;</a>
+    
+  </div>
+</article>
+      </section>
+    </div>
+  </div>
+
+   <footer>
+  <span>Copyright (c) 2021~ <a href="https://a1w.ca">Alexander Williams</a> and licensed under the permissive open source <a href="https://opensource.org/licenses/MIT">MIT</a> license.
+  </span>
+</footer>
+
+</body>
+
+</html>
