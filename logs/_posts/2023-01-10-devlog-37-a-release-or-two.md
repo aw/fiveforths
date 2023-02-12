@@ -78,7 +78,7 @@ We now have a visual indicator that the _Forth_ is booted and ready to accept co
 
 The last three changes are mostly cosmetic but equally important:
 
-First, I moved all these devlog _posts_ and their related assets, html pages, build files, etc to the `gh-pages` git branch. The goal was to cleanup and reorganize the repository so the code remains in the `master` branch, separate from the [devlogs](https://fiveforths.github.io) website.
+First, I moved all these devlog _posts_ and their related assets, html pages, build files, etc to the `gh-pages` git branch. The goal was to cleanup and reorganize the repository so the code remains in the `master` branch, separate from the [devlogs](https://fiveforths.a1w.ca) website.
 
 Next, the `Makefile` was heavily modified to support building different types of boards with different types of microcontrollers. Some code was split out from the `src/` source files and moved into `src/mcus/gd32vf103/mcu.s`, and other code was moved to `src/boards/longan-nano-lite/board.s`. I also added a simplified linker script for each board (ex: the `longan-nano` has slightly more RAM and double the FLASH of the `longan-nano-lite`).
 
