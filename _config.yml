@@ -1,7 +1,7 @@
 title: FiveForths
 description: 32-bit RISC-V Forth for microcontrollers
 baseurl: "/"
-url: "https://aw.github.io/fiveforths"
+url: "https://fiveforths.a1w.ca"
 github_username:  aw
 
 # Build settings

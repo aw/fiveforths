@@ -22,7 +22,7 @@ The next important changes were some bug fixes. I opened 4 issues on GitHub and 
 
 ### Bug fixes
 
-The `STORE` bug in [issue 14](https://github.com/aw/fiveforths/issues/14) was a real simple one. The `!` (`STORE`) primitive should store `x` in `addr`. I'm not sure how I overlooked it, but I somehow managed to reverse the order and found myself storing `addr` in `x`. I swear I tested it, so I reviewed [devlog 32](https://aw.github.io/fiveforths/devlog-32-fixing-bugs#fixing-primitives) and I realize my mistake. The code:
+The `STORE` bug in [issue 14](https://github.com/aw/fiveforths/issues/14) was a real simple one. The `!` (`STORE`) primitive should store `x` in `addr`. I'm not sure how I overlooked it, but I somehow managed to reverse the order and found myself storing `addr` in `x`. I swear I tested it, so I reviewed [devlog 32](https://fiveforths.github.io/devlog-32-fixing-bugs#fixing-primitives) and I realize my mistake. The code:
 
 ```
 here @ latest @ !<Enter>
