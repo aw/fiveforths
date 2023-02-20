@@ -18,25 +18,23 @@ This document provides an explanation of _FiveForths_ and the story behind it.
 
 Most likely, every **Forth** creator in this millenium has faced this question. I've already blogged about my [decision here](https://a1w.ca/p/2021-03-15-the-future-of-computing-with-riscv-fpgas-and-forth/) and [here](https://a1w.ca/p/2023-01-03-year-of-the-microcontroller/). To resume, I think _Forth_ is a nice way to start fresh in the world of microcontrollers and FPGAs. I think if we want to go back to owning our tools and creating things that run the way they should, then we need to start from a good minimal base.
 
-My initial goal was to start from [derzforth](https://github.com/theandrew168/derzforth/pulls?q=is%3Apr+is%3Aclosed) by contributing to the project and help bring it to a fully useable implementation,my existing but I eventually decided to create my own which was more aligned with my personal goals.
+My initial goal was to start from [derzforth](https://github.com/theandrew168/derzforth/pulls?q=is%3Apr+is%3Aclosed) by contributing to the project and help bring it to a fully useable implementation, but I eventually decided to create my own which was more aligned with my personal goals.
 
-I want to use _FiveForths_ as an alternative to my current C++/Lua-based microcontroller projects. I also want to use it as a building block for deploying to larger RISC-V instruction sets (ex: 64-bit) on much more powerful devices. Eventually, like most dreamers, I'd like to create an operating system, or something like that, so I guess I had to start somewhere.
+I want to use _FiveForths_ as an alternative to my current C++/Lua-based microcontroller projects. I also want to use it as a building block for deploying to larger RISC-V instruction sets (ex: 64-bit) on much more powerful devices. Eventually, like most dreamers, I'd like to create an operating system or something like that, so I guess I had to start somewhere.
 
 ### Why not Lisp
 
-Those who know me are aware that I've been programming in [PicoLisp](https://picolisp.com) for almost a decade. It's been my go-to language for almost everything at the high level, but I've been unable to get it to lower-level microcontroller projects. In the end, I'm even sure that Lisp (of any kind) is suitable for a microcontroller.
-
-I still think it's a wonderful high-level language and will continue using it for those projects. Eventually maybe I'll implement PicoLisp in Forth. Who knows? For now, it's _Forth_ at the low-level, and _PicoLisp_ at the high-level.
+Those who know me are aware that I've been programming in [PicoLisp](https://picolisp.com) for almost a decade. It's been my go-to language for almost everything at the high level, but I've been unable to get it to lower-level microcontroller projects. In the end, I'm not even sure that Lisp (of any kind) is suitable for a microcontroller.
 
 ### Why indirect threading
 
-At the start of 2023, I wrote about [what kind of threading](https://aw.github.io/fiveforths/devlog-29-what-kind-of-threads) I planned on using (direct-threading), but the implementation was ugly and buggy, so I switched to indirect-threading shortly after. The implementation is very similar to existing implementations such as [jonesforth](https://github.com/nornagon/jonesforth), so it was very easy to get it working perfectly, and it's also easy to reason about.
+At the start of 2023, I wrote about [what kind of threading](https://aw.github.io/fiveforths/devlog-29-what-kind-of-threads) I planned on using (direct-threading), but the implementation was ugly and buggy, so I switched to indirect-threading shortly after. The implementation is very similar to existing implementations such as [jonesforth](https://github.com/nornagon/jonesforth), so it was very easy to get it working perfectly and it's also easy to reason about.
 
 I'm aware that it may have some disadvantages on a modern RISC-V CPU architecture, but it's something that can eventually be changed if I start to notice some performance issues, and if I have time to work on it.
 
 ### Why word hashing
 
-A typical _Forth_ will have a variable word length for dictionary entries. The header that's built in memory would then store the word length and the characters of the word, and add padding to words for it to align on a boundary (ex: 4 byte boundary). A 32-character word header would end up requiring 11 CELLs or memory compared to a hash which would only require 3 CELLs for the header.
+A typical _Forth_ will have a variable word length for dictionary entries. The header that's built in memory would then store the word length and the characters of the word, and add padding to words for it to align on a boundary (ex: 4 byte boundary). A 32-character word header would end up requiring 11 CELLs of memory compared to a hash which would only require 3 CELLs for the header.
 
 The disadvantage of hashing is the number of cycles required to compute the hash. We're looking at an order of magnitude more time, but on a _Longan Nano_ running at 8 million cycles per second (8 MHz) it's still blazingly fast.
 
