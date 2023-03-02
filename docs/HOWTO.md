@@ -97,7 +97,7 @@ Accessing _FiveForths_ through the terminal should look similar to this:
 $ pyserial-miniterm --eol LF /dev/ttyUSB0 115200
 --- Miniterm on /dev/ttyUSB0  115200,8,N,1 ---
 --- Quit: Ctrl+] | Menu: Ctrl+T | Help: Ctrl+T followed by Ctrl+H ---
-FiveForths v0.4, Copyright (c) 2021~ Alexander Williams, https://a1w.ca
+FiveForths v0.5, Copyright (c) 2021~ Alexander Williams, https://a1w.ca
 
 ```
 

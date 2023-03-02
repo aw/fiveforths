@@ -73,4 +73,4 @@ tib_zerofill:
 tib_done:
     j interpreter_start # jump to the main interpreter REPL
 
-msg_boot: .ascii "FiveForths v0.4, Copyright (c) 2021~ Alexander Williams, https://a1w.ca \n\n"
+msg_boot: .ascii "FiveForths v0.5, Copyright (c) 2021~ Alexander Williams, https://a1w.ca \n\n"

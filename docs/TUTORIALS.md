@@ -20,7 +20,7 @@ This document provides a quick guide to get started using _FiveForths_.
 
 * Linux (tested on Debian bullseye) with _RISC-V_ cross-compilation binaries installed
 * 32-bit GD32VF103 microcontroller
-* USB cable for flashing firmware (using `dfu-util`), or Serial/USB UART (`PA9`, `PA10`) pins
+* USB cable for flashing firmware (using `stm32loader`), or Serial/USB UART (`PA9`, `PA10`) pins
 * Serial/USB UART connected to JTAG (`PA13`, `PA14`, `PA15`, `PB3`) pins for debugging
 * Manually built `openocd` and `gdb` installed in `/opt/riscv/` for debugging
 
@@ -54,8 +54,8 @@ It is possible to download a pre-built firmware binary, or build the firmware ma
 
 Download one of the firmware binaries from the [releases page](https://github.com/aw/fiveforths/releases).
 
-* [fiveforths-longan-nano-lite.bin](https://github.com/aw/fiveforths/releases/download/v0.4/fiveforths-longan-nano-lite.bin) (64K Flash, 20K RAM)
-* [fiveforths-longan-nano.bin](https://github.com/aw/fiveforths/releases/download/v0.4/fiveforths-longan-nano.bin) (128K Flash, 32K RAM)
+* [fiveforths-longan-nano-lite.bin](https://github.com/aw/fiveforths/releases/download/v0.5/fiveforths-longan-nano-lite.bin) (64K Flash, 20K RAM)
+* [fiveforths-longan-nano.bin](https://github.com/aw/fiveforths/releases/download/v0.5/fiveforths-longan-nano.bin) (128K Flash, 32K RAM)
 
 ### Build it
 
@@ -78,7 +78,7 @@ Finally, build the firmware and debug files with `make`. The output should look 
 
 ```
 $ make
-/usr/bin/riscv64-unknown-elf-as -g -march=rv32imac -I src/boards/longan-nano-lite -I src/mcus/gd32vf103 -I src -o fiveforths.o fiveforths.s
+/usr/bin/riscv64-unknown-elf-as -g -march=rv32imac_zicsr -I src/boards/longan-nano-lite -I src/mcus/gd32vf103 -I src -o fiveforths.o fiveforths.s
 /usr/bin/riscv64-unknown-elf-ld -m elf32lriscv -T src/boards/longan-nano-lite/linker.ld -o fiveforths.elf fiveforths.o
 /usr/bin/riscv64-unknown-elf-objcopy -O binary fiveforths.elf fiveforths.bin
 /usr/bin/riscv64-unknown-elf-objcopy -O ihex fiveforths.elf fiveforths.hex
@@ -87,7 +87,7 @@ $ make
 
 Additional build options are explained in the [HOWTO](HOWTO.md) section.
 
-The firmware file is called `fiveforths.bin` and is **approximately 2.5 KBytes** as of _release v0.4_ since _January 23, 2023_.
+The firmware file is called `fiveforths.bin` and is **approximately 2.5 KBytes**.
 
 ### Flash it
 

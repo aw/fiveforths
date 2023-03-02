@@ -14,7 +14,7 @@ OBJDUMP := $(CROSS)objdump
 READELF := $(CROSS)readelf
 
 # MCU and board specific variables
-ARCH ?= rv32imac
+ARCH ?= rv32imac_zicsr
 EMU ?= elf32lriscv
 MCU ?= gd32vf103
 BOARD ?= longan-nano-lite

@@ -23,8 +23,8 @@ Development progress has been logged regularly in the [devlogs](https://aw.githu
 
 The quickest way to get started is to download and flash one of the firmware binaries listed below:.
 
-* [fiveforths-longan-nano-lite.bin](https://github.com/aw/fiveforths/releases/download/v0.4/fiveforths-longan-nano-lite.bin) (64K Flash, 20K RAM)
-* [fiveforths-longan-nano.bin](https://github.com/aw/fiveforths/releases/download/v0.4/fiveforths-longan-nano.bin) (128K Flash, 32K RAM)
+* [fiveforths-longan-nano-lite.bin](https://github.com/aw/fiveforths/releases/download/v0.5/fiveforths-longan-nano-lite.bin) (64K Flash, 20K RAM)
+* [fiveforths-longan-nano.bin](https://github.com/aw/fiveforths/releases/download/v0.5/fiveforths-longan-nano.bin) (128K Flash, 32K RAM)
 
 See the [TUTORIALS](docs/TUTORIALS.md) for detailed download and flashing information.
 
@@ -44,6 +44,11 @@ See the [TUTORIALS](docs/TUTORIALS.md) for detailed download and flashing inform
 Please create a pull-request or [open an issue](https://github.com/aw/picolisp-kv/issues/new) on GitHub.
 
 # Changelog
+
+## 0.5 (TBD)
+
+  * Fix issue #19 - Error building without zicsr extension
+  * Fix issue #20 - Specify `stm32loader` instead of `dfu-util` in docs
 
 ## 0.4 (2023-01-23)
 
