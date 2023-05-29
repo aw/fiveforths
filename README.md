@@ -45,7 +45,7 @@ Please create a pull-request or [open an issue](https://github.com/aw/picolisp-k
 
 # Changelog
 
-## 0.5 (TBD)
+## 0.5 (2023-05-29)
 
   * Fix issue #19 - Error building without zicsr extension
   * Fix issue #20 - Specify `stm32loader` instead of `dfu-util` in docs
