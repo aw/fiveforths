@@ -8,7 +8,7 @@
 
 _FiveForths_ currently uses the _indirect threading_ model and only has 19 built-in primitive words. It is 100% fully functional and can be extended by adding new primitives (in Assembly) or by defining new words (in Forth). This implementation is loosely inspired by [sectorforth](https://github.com/cesarblum/sectorforth), [jonesforth](https://github.com/nornagon/jonesforth), and [derzforth](https://github.com/theandrew168/derzforth).
 
-Development progress has been logged regularly in the [devlogs](https://aw.github.io/fiveforths/).
+Development progress has been logged regularly in the [devlogs](https://fiveforths.a1w.ca/).
 
 ---
 
