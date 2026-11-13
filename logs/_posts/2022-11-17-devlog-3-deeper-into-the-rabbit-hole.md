@@ -1,3 +1,7 @@
+---
+commit: ec3521e
+---
+
 # November 17, 2022
 
 ## Deeper into the rabbit hole

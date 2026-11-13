@@ -1,3 +1,7 @@
+---
+commit: aff2d15, 8c381db
+---
+
 # November 24, 2022
 
 1. [Reviewing primitives again](#reviewing-primitives-again)

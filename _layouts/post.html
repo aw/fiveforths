@@ -4,6 +4,13 @@ layout: default
 
 <article>
   <h2>{{ page.title }}</h2>
+  {% if page.commit %}
+    <p class="commit-link">
+      See the code diff: 
+      {% if page.commit contains ',' %}<a href="https://github.com/aw/fiveforths/compare/{{ page.commit | split: ', ' | first }}^...{{ page.commit | split: ', ' | last }}">{% else %}<a href="https://github.com/aw/fiveforths/commit/{{ page.commit }}">{% endif %}
+      <code>{{ page.commit }}</code></a>
+    </p>
+  {% endif %}
   {{ content }}
   <div class="pagination">
     {% if page.previous.url %}

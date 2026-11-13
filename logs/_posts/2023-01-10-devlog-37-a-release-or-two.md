@@ -1,3 +1,7 @@
+---
+commit: ae52e94, 4c0bb52
+---
+
 # January 10
 
 1. [Log 37](#log-37)
